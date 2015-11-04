@@ -3331,6 +3331,7 @@ class mssql
 	 * takes about 3 hours for construct_relative_bonus_split_per_fund 
 	 * for every fund
 	 */
+	
 	function construct_relative_bonus_split() {
 		//DB::runSql("TRUNCATE table test_fund_manager_bonus_split");
 		//$this->construct__relative_bonus_split_skeleton();
