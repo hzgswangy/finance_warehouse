@@ -391,13 +391,15 @@ class mssql
 	function funddividend()
 	{
 		//数据大约6000条,一次取出
-		$sql="SELECT SYMBOL,RECORDDATE,PRIMARYEXDIVIDENDDATE,DISTRIBUTIONPLAN,PRIMARYPAYDATE_DIVIDEND,UPDATETIME,UPDATEID FROM [dbo].[FUND_FUNDDIVIDEND] ORDER BY SYMBOL";
+		$sql="SELECT SYMBOL,RECORDDATE,PRIMARYEXDIVIDENDDATE,DISTRIBUTIONPLAN,PRIMARYPAYDATE_DIVIDEND,UPDATETIME,DIVIDENDPERSHARE,UPDATEID FROM [dbo].[FUND_FUNDDIVIDEND] ORDER BY SYMBOL";
 		$data=self::getData($sql);
 		$sql="SELECT updateid FROM `fund_bonus`";
 		$ret=DB::getData($sql);
 		$ids=array_column($ret,'updateid');
 		unset($ret);
-		$sql="INSERT INTO `fund_bonus` (`code`,`year`,`date_reg`,`date_divid`,`bonus`,`date_grant`,`update_date`,`updateid`) VALUES (:code,:year,:date_reg,:date_divid,:bonus,:date_grant,:update_date,:updateid)";
+		$sql="INSERT INTO `fund_bonus` (`code`,`year`,`date_reg`,`date_divid`,`bonus`,`date_grant`,`update_date`,`per`,`updateid`) VALUES (:code,:year,:date_reg,:date_divid,:bonus,:date_grant,:update_date,:per,:updateid)  ON DUPLICATE KEY UPDATE date_reg=VALUES(date_reg), date_divid=VALUES(date_divid), bonus=VALUES(bonus), date_grant=VALUES(date_grant), update_date=VALUES(update_date), per=VALUES(per)";
+		$stm=DB::prepare($sql);
+
 		$stm=DB::prepare($sql);
 		$add=$ignore=0;
 		foreach ($data as $item)
@@ -417,6 +419,7 @@ class mssql
 					$stm->bindParam(':date_grant',$item['PRIMARYPAYDATE_DIVIDEND']);
 					$stm->bindParam(':update_date',$item['UPDATETIME']);
 					$stm->bindParam(':updateid',$item['UPDATEID']);
+					$stm->bindParam(':per',$item['DIVIDENDPERSHARE']);
 					self::log('add data for '.$item['SYMBOL']);
 					$stm->execute();
 					$add++;
