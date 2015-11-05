@@ -6,7 +6,6 @@
 class mssql
 {
 
-	
 	private static $mssql;
 
 	private static $data; //拆分分红存储
@@ -95,6 +94,392 @@ class mssql
 		{
 			file_put_contents(date('Y-m-d').'-run.log',date('Y-m-d H:i:s').' '.$msg.PHP_EOL,FILE_APPEND);
 		}
+	}
+
+	private static function getRootDb()
+	{
+		if(!self::$mssql)
+		{
+			$options=array(PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_TIMEOUT=>3);
+			if(DIRECTORY_SEPARATOR=='/')
+			{
+				//linux
+				self::$mssql=new PDO("odbc:Driver=SQLNativeClient;Server=10.4.27.179;Database=GTA_QIA_QDB;Uid=sa;Pwd=123456789Aa;",'sa','123456789Aa',$options);
+			}
+			else
+			{
+				//windows
+				self::$mssql=new PDO("odbc:Driver={SQL Server};Server=10.4.27.179;Database=GTA_QIA_QDB;",'sa','123456789Aa',$options);
+			}
+		}
+		return self::$mssql;
+	}
+
+	private static function runRootSql($sql)
+	{
+		try
+		{
+			return self::getRootDb()->exec($sql);
+		}
+		catch (PDOException $e)
+		{
+			return app::Error(500,"Run Sql [ {$sql} ] Error : ".$e->getMessage());
+		}
+	}
+
+	// get max id for target table in mysql
+	private static function get_max_id($table_name, $id_name) {
+		#$sql = "SELECT top 1 $id_name FROM $table_name ORDER BY $id_name desc";
+		$sql = "SELECT `{$id_name}` FROM `{$table_name}` ORDER BY `{$id_name}` desc limit 1";
+		$id_array = DB::getData($sql);
+		if (count($id_array) > 0) {
+			$max_id = (int) ($id_array[0][$id_name]);
+		} else {
+			$max_id  = -1;
+		}
+		return $max_id;
+	}
+
+	// get row count for target table in mysql
+	private static function get_row_count($table_name) {
+		$sql = "SELECT count(*) FROM $table_name ";
+		$ret = DB::getData($sql);
+		$count = (int) ($ret[0]["count(*)"]);
+		return $count;
+	}
+
+	// get row count for target table in sql server
+	private static function get_ms_row_count($table_name) {
+		$sql = "SELECT count(*) FROM $table_name ";
+		$ret = self::getData($sql);
+		var_dump($ret);
+		$count = (int) ($ret[0][""]);
+		return $count;
+	}
+
+	/*
+	 * get the start pos for the matched $head->$start(eg. xml)
+	 * start pos should behind the start a little,
+	 * $end_pos: the pos of the end pattern
+	 */
+	function get_patten_string($data, $head, $end, $start_pos, &$end_pos) {
+		$p1 = strpos($data, $head, $start_pos);
+		if ($p1 === false) {
+			return false;
+		}
+		$p2 = $this->get_pattern_pos($data, $head, $end, $p1+1);
+		if ($p2 === false) {
+			return false;
+		}
+		$res = substr($data, $p1, $p2 - $p1);
+		$end_pos = $p2;
+		return $res;
+	}
+
+	/*
+	 * get the string for the matched $head->$start(eg. xml)
+	 * NOTICE: the start pos is right the pos of the start pattern
+	 * $end_pos: the pos of the end pattern
+	 */
+	function get_pattern_pos($data, $head, $end, $start_pos) {
+		/*
+			echo "get_pattern_pos\n";
+			//var_dump($data);
+			var_dump($head);
+			var_dump($end);
+			var_dump($start_pos);
+		//*/
+		$p1 = strpos($data, $head, $start_pos);
+		$p2 = strpos($data, $end, $start_pos);
+		while ($p2 != false) {
+			if ($p1 == false || $p2 < $p1) {
+				return $p2;
+			}
+			$start_pos = $p2 + 1;
+			$p1 = strpos($data, $head, $start_pos);
+			$p2 = strpos($data, $end, $start_pos);
+		}
+		return false;
+	}
+
+	function get_start_and_end_pos(&$data, $field, $size, $start_pos, &$end_pos) {
+		echo "get_start_and_end_pos: ";
+		$id = $data[$start_pos][$field];
+		$end_pos = $start_pos;
+		for (; $end_pos < $size; $end_pos ++) {
+			if ( $data[$end_pos][$field] != $id ) {
+				break;
+			}
+		}
+		$end_pos --;
+		echo " {$id}, {$field}, {$start_pos}, {$end_pos}\n";
+	}
+
+	function getDateTime($date_s) {
+		$year_p = strpos($date_s, "年");
+		$mon_p = strpos($date_s, "月");
+		$day_p = strpos($date_s, "日");
+
+		$date = new DateTime();
+		if ($year_p == false || $mon_p == false || $day_p == false) {
+			$date->setDate(2000, 1, 1);
+			return $date->format('Y-m-d');
+		}
+		$year = (int) substr($date_s, 0, $year_p);
+		$month = (int) substr($date_s, $year_p + 1, $mon_p - $year_p - 1 );
+		$day = (int) substr($date_s, $mon_p+1, $day_p - $mon_p - 1);
+		$date->setDate($year, $month, $day);
+		return $date->format('Y-m-d');
+	}
+
+	/**
+	 * used for batch query
+	 * when insert_count == margin-1, do the sql and reset
+	 * @param $sql
+	 * @param $insert_count
+	 * @param $margin
+	 */
+	function run_sql(&$sql, &$insert_count, $margin) {
+		if ( ($insert_count % $margin) >= ($margin - 1) ) {
+			echo "do sql\n";
+			var_dump($sql);
+			$ret = DB::runSql($sql);
+			$sql = "";
+			$insert_count = 0;
+		} else {
+			$insert_count++;
+		}
+	}
+
+	/*
+ * $mysql_id, order
+ */
+	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id = null, $mssql_id = null) {
+		// check variable
+		if ( !is_array($mysql_fields) || !is_array($mssql_fields) ) {
+			echo "input fields is not array";
+			return false;
+		}
+
+		if ( count($mssql_fields) != count($mysql_fields) ) {
+			echo "input fields is not equal";
+			return false;
+		}
+
+		// partial
+		$sql = "";
+		if ($mysql_id !== null) {
+			// get total size
+			$sz = $this->get_ms_row_count($mssql_tbname);
+			$start_pos = 0;
+			$margin = 500;
+			$end_pos = $start_pos + $margin;
+			echo "start pos: ";
+			var_dump($start_pos);
+			while ($start_pos < $sz) {
+				$sql = "SELECT * from (SELECT *, ROW_NUMBER() OVER (ORDER BY $mysql_id) as row FROM [dbo].[{$mssql_tbname}]) a WHERE a.row >= {$start_pos} and a.row <= {$end_pos}";
+				$source_data = $this->getData($sql);
+				//var_dump($source_data);
+				$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields);
+				$start_pos = $end_pos + 1;
+				$end_pos = $start_pos + $margin;
+			}
+
+			foreach ($mssql_fields as $filed) {
+				$sql = $sql." `{$filed}`";
+			}
+		} else {
+			$sql = "SELECT ";
+			foreach ($mssql_fields as $filed) {
+				$sql = $sql." `{$filed}`";
+			}
+			$sql = $sql." from [dbo].[{$mssql_tbname}]";
+			$source_data = $this->getData($sql);
+			$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields);
+		}
+
+	}
+
+	function syn_data($source_data, $source_fields, $target_tbname, $target_fields) {
+
+		$margin = 50;
+		$sz = count($source_data);
+		$count = $sz / $margin;
+		if ( $sz % $margin != 0 ) {
+			$count ++;
+		}
+		$slicde_data = array_chunk ($source_data, $count);
+		foreach ($slicde_data as $data_array) {
+			echo "data_array:\n";
+			//var_dump($data_array);
+			$sql = "INSERT INTO {$target_tbname} (";
+			foreach ($target_fields as $fileds) {
+				$sql = $sql." `{$fileds}`,";
+			}
+			$tmp_sz = strlen($sql);
+			$sql = substr($sql, 0, $tmp_sz-1);
+			$sql = $sql.") VALUES";
+			foreach ($data_array as $item) {
+				var_dump($item["fund_code"]);
+				$sql = $sql." (";
+				foreach($source_fields as $fields) {
+					if (!array_key_exists($fields, $item)) {
+						$item[$fields] = "";
+					}
+					$sql = $sql."'{$item[$fields]}', ";
+				}
+				// delete last ","
+				$tmp_sz = strlen($sql);
+				$sql = substr($sql, 0, $tmp_sz-2);
+				$sql = $sql."),";
+			}
+			// delete last ","
+			$tmp_sz = strlen($sql);
+			$sql = substr($sql, 0, $tmp_sz-1);
+			DB::runSql($sql);
+		}
+
+	}
+
+	/**
+	 * 默认两张表的字段一致
+	 * @param $source_table
+	 * @param $target_table
+	 * @param $order_id: whether add "''" in sql statement
+	 * @param $is_value
+	 * @param array $exclude_array: ignore fields
+	 */
+	function compareTable($source_table, $target_table, $order_id, $is_value, $exclude_array=[]) {
+		// get propertylist
+		echo "start compareTable";
+		$sql = "select `column_name` from `information_schema`.`columns` where `table_name`='{$source_table}'";
+		$ret = DB::getData($sql);
+		$filed_array = [];
+		foreach ($ret as $item) {
+			array_push($filed_array, $item["column_name"]);
+		}
+
+		// get id count for both
+		$max_target_id = $this->get_max_id($target_table, $order_id);
+		$max_source_id = $this->get_max_id($source_table, $order_id);
+		$max_id = max($max_target_id, $max_source_id);
+
+		$margin = 5000;
+		$start_id = 0;
+		$end_id = $margin + $start_id;
+
+		while ($start_id <= $max_id) {
+			echo " start_id: {$start_id}, end_id: {$end_id} \n";
+			$this->comparePartTable($source_table, $target_table, $order_id, $is_value, $filed_array, $exclude_array, $start_id, $end_id);
+			$start_id += $margin;
+			$end_id += $margin;
+		}
+
+		echo "end compareTable";
+
+	}
+
+	function comparePartTable($source_table, $target_table, $order_id, $is_value, $field_array, $exclude_array=[], $start_id, $end_id) {
+		if ($is_value) {
+			$sql_source = "select * from {$source_table} where $order_id >= {$start_id} and $order_id < {$end_id} order by $order_id";
+			$sql_target = "select * from {$target_table} where $order_id >= {$start_id} and $order_id < {$end_id} order by $order_id";
+		} else {
+			$sql_source = "select * from {$source_table} where $order_id >= '{$start_id}' and $order_id < '{$end_id}' order by $order_id";
+			$sql_target = "select * from {$target_table} where $order_id >= '{$start_id}' and $order_id < '{$end_id}' order by $order_id";
+		}
+
+		$source_data =  DB::getData($sql_source);
+		$source_size = count($source_data);
+		$target_data = DB::getData($sql_target);
+		$target_size = count($target_data);
+
+		// doulbe loop to compare
+		$pos_source = 0;
+		$pos_target = 0;
+		for (; $pos_source < $source_size; ) {
+			for (; $pos_target < $target_size; ) {
+				$item_source = $source_data[$pos_source];
+				$item_target = $target_data[$pos_target];
+				if ($this->compareRow($item_source, $item_target, $field_array, $exclude_array)) {
+					$pos_source ++;
+					$pos_target ++;
+					continue;
+				} else {
+					$source_id = $item_source[$order_id];
+					$target_id = $item_target[$order_id];
+
+					if ($source_id == $target_id) {
+						// different
+						echo "different occur: \n";
+						echo "  souce row: ";
+						var_dump($item_source);
+						echo "  target row: ";
+						var_dump($item_target);
+						echo "\n";
+						$pos_source ++;
+						$pos_target ++;
+						break;
+					} else if ($source_id < $target_id) {
+						// target lack
+						// add data
+						echo "target lack: \n";
+						echo "  source row: ";
+						var_dump($item_target);
+						echo "\n";
+						$pos_source ++;
+						break;
+					} else {
+						// source lack
+						echo "source lack: \n";
+						echo "  target row: ";
+						var_dump($item_source);
+						echo "\n";
+						$pos_target ++;
+					}
+				}
+
+			}
+			if ($pos_target == $target_size) {
+				break;
+			}
+		}
+
+		for (; $pos_source < $source_size; $pos_source ++) {
+			$item_source = $source_data[$pos_source];
+			echo "target lack: \n";
+			echo "  source row: ";
+			var_dump($item_source);
+			echo "\n";
+		}
+
+		for (; $pos_target < $target_size; $pos_target ++) {
+			$item_target = $target_data[$pos_target];
+			echo "source lack: \n";
+			echo "  target row: ";
+			var_dump($item_target);
+			echo "\n";
+		}
+
+	}
+
+	function compareRow($source_row, $target_row, $filed_array, $exclude_array = []) {
+		foreach ( $filed_array as $filed ) {
+			if (in_array($filed, $exclude_array)) {
+				continue;
+			}
+			if ( $target_row[$filed] != $source_row[$filed] ) {
+				echo "compareRow: ";
+				echo "{$filed}";
+				echo " ";
+				echo $source_row[$filed];
+				echo " ";
+				echo $target_row[$filed];
+				echo "\n";
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	//分红,拆分信息读取
@@ -922,205 +1307,6 @@ class mssql
 	}
 
 // wangyu change start
-	private static function getRootDb()
-	{
-		if(!self::$mssql)
-		{
-			$options=array(PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_TIMEOUT=>3);
-			if(DIRECTORY_SEPARATOR=='/')
-			{
-				//linux
-				self::$mssql=new PDO("odbc:Driver=SQLNativeClient;Server=10.4.27.179;Database=GTA_QIA_QDB;Uid=sa;Pwd=123456789Aa;",'sa','123456789Aa',$options);
-			}
-			else
-			{
-				//windows
-				self::$mssql=new PDO("odbc:Driver={SQL Server};Server=10.4.27.179;Database=GTA_QIA_QDB;",'sa','123456789Aa',$options);
-			}
-		}
-		return self::$mssql;
-	}
-
-	private static function runRootSql($sql)
-	{
-		try
-		{
-			return self::getRootDb()->exec($sql);
-		}
-		catch (PDOException $e)
-		{
-			return app::Error(500,"Run Sql [ {$sql} ] Error : ".$e->getMessage());
-		}
-	}
-
-	private static function get_max_id($table_name, $id_name) {
-		#$sql = "SELECT top 1 $id_name FROM $table_name ORDER BY $id_name desc";
-		$sql = "SELECT `{$id_name}` FROM `{$table_name}` ORDER BY `{$id_name}` desc limit 1";
-		$id_array = DB::getData($sql);
-		if (count($id_array) > 0) {
-			$max_id = (int) ($id_array[0][$id_name]);
-		} else {
-			$max_id  = -1;
-		}
-		return $max_id;
-	}
-
-	private static function get_row_count($table_name) {
-		$sql = "SELECT count(*) FROM $table_name ";
-		$ret = DB::getData($sql);
-		$count = (int) ($ret[0]["count(*)"]);
-		return $count;
-	}
-
-	private static function get_ms_row_count($table_name) {
-		$sql = "SELECT count(*) FROM $table_name ";
-		$ret = self::getData($sql);
-		var_dump($ret);
-		$count = (int) ($ret[0][""]);
-		return $count;
-	}
-
-	/**
-	 * 默认两张表的字段一致
-	 * @param $source_table
-	 * @param $target_table
-	 * @param $order_id
-	 * @param $is_value
-	 * @param array $exclude_array
-	 */
-	function compareTable($source_table, $target_table, $order_id, $is_value, $exclude_array=[]) {
-		// get propertylist
-		echo "start compareTable";
-		$sql = "select `column_name` from `information_schema`.`columns` where `table_name`='{$source_table}'";
-		$ret = DB::getData($sql);
-		$filed_array = [];
-		foreach ($ret as $item) {
-			array_push($filed_array, $item["column_name"]);
-		}
-
-		// get id count for both
-		$max_target_id = $this->get_max_id($target_table, $order_id);
-		$max_source_id = $this->get_max_id($source_table, $order_id);
-		$max_id = max($max_target_id, $max_source_id);
-
-		$margin = 5000;
-		$start_id = 0;
-		$end_id = $margin + $start_id;
-
-		while ($start_id <= $max_id) {
-			echo " start_id: {$start_id}, end_id: {$end_id} \n";
-			$this->comparePartTable($source_table, $target_table, $order_id, $is_value, $filed_array, $exclude_array, $start_id, $end_id);
-			$start_id += $margin;
-			$end_id += $margin;
-		}
-
-		echo "end compareTable";
-
-	}
-
-	function comparePartTable($source_table, $target_table, $order_id, $is_value, $field_array, $exclude_array=[], $start_id, $end_id) {
-		if ($is_value) {
-			$sql_source = "select * from {$source_table} where $order_id >= {$start_id} and $order_id < {$end_id} order by $order_id";
-			$sql_target = "select * from {$target_table} where $order_id >= {$start_id} and $order_id < {$end_id} order by $order_id";
-		} else {
-			$sql_source = "select * from {$source_table} where $order_id >= '{$start_id}' and $order_id < '{$end_id}' order by $order_id";
-			$sql_target = "select * from {$target_table} where $order_id >= '{$start_id}' and $order_id < '{$end_id}' order by $order_id";
-		}
-
-		$source_data =  DB::getData($sql_source);
-		$source_size = count($source_data);
-		$target_data = DB::getData($sql_target);
-		$target_size = count($target_data);
-
-		// doulbe loop to compare
-		$pos_source = 0;
-		$pos_target = 0;
-		for (; $pos_source < $source_size; ) {
-			for (; $pos_target < $target_size; ) {
-				$item_source = $source_data[$pos_source];
-				$item_target = $target_data[$pos_target];
-				if ($this->compareRow($item_source, $item_target, $field_array, $exclude_array)) {
-					$pos_source ++;
-					$pos_target ++;
-					continue;
-				} else {
-					$source_id = $item_source[$order_id];
-					$target_id = $item_target[$order_id];
-
-					if ($source_id == $target_id) {
-						// different
-						echo "different occur: \n";
-						echo "  souce row: ";
-						var_dump($item_source);
-						echo "  target row: ";
-						var_dump($item_target);
-						echo "\n";
-						$pos_source ++;
-						$pos_target ++;
-						break;
-					} else if ($source_id < $target_id) {
-						// target lack
-						// add data
-						echo "target lack: \n";
-						echo "  source row: ";
-						var_dump($item_target);
-						echo "\n";
-						$pos_source ++;
-						break;
-					} else {
-						// source lack
-						echo "source lack: \n";
-						echo "  target row: ";
-						var_dump($item_source);
-						echo "\n";
-						$pos_target ++;
-					}
-				}
-
-			}
-			if ($pos_target == $target_size) {
-				break;
-			}
-		}
-
-		for (; $pos_source < $source_size; $pos_source ++) {
-			$item_source = $source_data[$pos_source];
-			echo "target lack: \n";
-			echo "  source row: ";
-			var_dump($item_source);
-			echo "\n";
-		}
-
-		for (; $pos_target < $target_size; $pos_target ++) {
-			$item_target = $target_data[$pos_target];
-			echo "source lack: \n";
-			echo "  target row: ";
-			var_dump($item_target);
-			echo "\n";
-		}
-
-	}
-
-	function compareRow($source_row, $target_row, $filed_array, $exclude_array = []) {
-		foreach ( $filed_array as $filed ) {
-			if (in_array($filed, $exclude_array)) {
-				continue;
-			}
-			if ( $target_row[$filed] != $source_row[$filed] ) {
-				echo "compareRow: ";
-				echo "{$filed}";
-				echo " ";
-				echo $source_row[$filed];
-				echo " ";
-				echo $target_row[$filed];
-				echo "\n";
-				return false;
-			}
-		}
-
-		return true;
-	}
-
 	/**
 	 * syn table fund_info in mysql
 	 * source DB: mssql
@@ -1360,7 +1546,6 @@ class mssql
 
 	}
 
-
 	function execute_syn_fund_stock(&$sql, $item, &$insert_count, $margin) {
 		// add sql
 		if ($insert_count != 0) {
@@ -1386,1035 +1571,14 @@ class mssql
 		}
 	}
 
-	function wangyu_test_2() {
-		$sql="exec [dbo].graspFundInfo";
-		$ret = self::runRootSql($sql);
-		$sql = 'select * from [dbo].[table_test_res] ORDER BY SYMBOL';
-		$data = self::getData($sql);
-		var_dump($data[0]["CUSTODIANFEE"]);
-		$convert_string = ($data[0]["CUSTODIANFEE"]);
-		var_dump($convert_string);
-		$convert_int = (float) ($convert_string);
-		var_dump($convert_int);
-
-		$convert_string = "0".$convert_string;
-		var_dump($convert_string);
-		$convert_int = (float) ($convert_string);
-		var_dump($convert_int);
-	}
-
-	function wangyu_test() {
-		/*
-		$sql = "select count(*) from test_fund_stock";
-    echo "  blank: ";
-		$ret = DB::getData($sql);
-		var_dump($ret);
-		var_dump($ret);
-		$sql = "select `column_name` from `information_schema`.`columns` where `table_name`='test_fund_stock'";
-		$ret = DB::getData($sql);
-		var_dump($ret);
-		*/
-		$source_table = "fund_info";
-		$target_table = "test_fund_info";
-		$order_id = "code";
-		$is_value = false;
-		$exclude_array=["id", "status_desc", "fund_type", "invest_gain", "update_date", "name", "fullname", "start_date", "exchange_status", "company", "manager"];
-		$this->compareTable($source_table, $target_table, $order_id, $is_value, $exclude_array);
-
-
-	}
-
-	/**
-	 * update the fund_size field in table--fund_manager_funds
-	 *
-	 * row nums is about 5k, can be store in memory
+	/** parse_manager_from tian tian ji jin wang------------------------------------
+	 * syn mssql table: fund_manager_funds, the manager info for every funds
+	 * basic struct is grasp from tiantian ji jin wang, lack of benchmark, rank, and the info of retired manager, fund size
+	 * is not proper for unit
+	 * addition info is from howbuy, but lack of the start_date and the end_date
+	 * the start date and end date is from mssql
 	 */
-	function syn_fund_manager_funds_fund_size() {
-		$sql="exec [dbo].graspFundInfo";
-		$ret = self::runRootSql($sql);
-		self::log("ret: {$ret}");
-		if ($ret >= 0) {
-			// get  $source_data
-			$sql = 'select SYMBOL, TOTALTNA from [dbo].[table_test_res] ORDER BY SYMBOL';
-			$source_data = self::getData($sql);
-			$source_size = count($source_data);
 
-			// get  $get target code ids
-			$sql = 'SELECT fund_code from test_fund_manager_funds ORDER BY fund_code';
-			$target_id_aray = DB::getData($sql);
-			$target_size = count($target_id_aray);
-
-			// check for match, then update
-			$source_pos = 0;
-			$target_pos = 0;
-			$insert_count = 0;
-			$sql = "";
-			$id_list = "";
-			$margin = 50;
-			$source_miss = 0;
-			$target_miss = 0;
-			$pre_source_id = -1;
-			$pre_target_id = -1;
-			for (; $source_pos < $source_size; ) {
-				for (; $target_pos < $target_size; ) {
-					$source_id = $source_data[$source_pos]["SYMBOL"];
-					$target_id = $target_id_aray[$target_pos]["fund_code"];
-
-					if ($target_id == $source_id) {
-						// do it
-						self::execute_syn_fund_manager_funds_fund_size(
-							$sql, $id_list, $source_data[$source_pos], $insert_count, $margin
-						);
-						//echo "{$source_id}, {$source_data[$source_pos]["TOTALTNA"]}, {$target_id_aray[$target_pos]["fund_code"]}\n";
-						$pre_source_id = $source_id;
-						$source_pos ++;
-						$pre_target_id = $target_id;
-						$target_pos ++;
-						break;
-					} else if ($source_id < $target_id) {
-						// source miss
-						if ($pre_source_id != $source_id) {
-							$target_miss ++;
-						}
-
-						$pre_source_id = $source_id;
-						$source_pos ++;
-						break;
-					} else {
-						// target miss
-						if ($pre_target_id != $target_id) {
-							$source_miss ++;
-						}
-						$pre_target_id = $target_id;
-						$target_pos ++;
-					}
-
-					if ($target_pos >= $target_size) {
-						break;
-					}
-				}
-			}
-
-			// do remain
-			if ($insert_count > 0) {
-				echo "do sql:\n";
-				$sql = $sql." END WHERE fund_code in ({$id_list}) ";
-				$ret=DB::runSql($sql);
-			}
-
-			echo "source missing : ";
-			echo "{$source_miss} \n";
-			echo "target missing: ";
-			echo "{$target_miss} \n";
-		}
-	}
-
-	function execute_syn_fund_manager_funds_fund_size(&$sql, &$id_list, $item, &$insert_count, $margin) {
-		if (empty($item["TOTALTNA"])) {
-			return;
-		}
-
-		if ($insert_count != 0) {
-			$sql = $sql." ";
-			$id_list = $id_list.",";
-		} else {
-			$sql = "update test_fund_manager_funds set fund_size = case ";
-		}
-
-		$sql = $sql."WHEN fund_code = {$item["SYMBOL"]} THEN {$item["TOTALTNA"]}";
-		$id_list = $id_list." {$item["SYMBOL"]}";
-
-		if ( ($insert_count % $margin) == ($margin - 1) ) {
-			echo "do sql\n";
-			$sql = $sql." END WHERE fund_code in ({$id_list}) ";
-			$ret = DB::runSql($sql);
-			$sql = "";
-			$id_list = "";
-			$insert_count = 0;
-		} else {
-			$insert_count ++;
-		}
-	}
-
-	/*
-	 * update table fund_manager_funds mastercode
-	 */
-	function syn_fund_manager_fund_mastercode () {
-		// get  $source_data
-		$sql = 'select SYMBOL, MASTERFUNDCODE from [dbo].[FUND_FUNDCODEINFO] ORDER BY SYMBOL';
-		$source_data = self::getData($sql);
-		$source_size = count($source_data);
-
-		// get  $get target code ids
-		$sql = 'SELECT fund_code from test_fund_manager_funds ORDER BY fund_code';
-		$target_id_aray = DB::getData($sql);
-		$target_size = count($target_id_aray);
-
-		// check for match, then update
-		$source_pos = 0;
-		$target_pos = 0;
-		$insert_count = 0;
-		$sql = "";
-		$id_list = "";
-		$margin = 50;
-		$source_miss = 0;
-		$target_miss = 0;
-		for (; $source_pos < $source_size; ) {
-			for (; $target_pos < $target_size; ) {
-				$source_id = $source_data[$source_pos]["SYMBOL"];
-				$target_id = $target_id_aray[$target_pos]["fund_code"];
-
-				if ($target_id == $source_id) {
-					// do it
-					self::execute_syn_fund_manager_funds_fund_mastercode(
-						$sql, $id_list, $source_data[$source_pos], $insert_count, $margin
-					);
-					echo "{$source_id}, {$source_data[$source_pos]["MASTERFUNDCODE"]}, {$target_id_aray[$target_pos]["fund_code"]}\n";
-					$source_pos ++;
-					$target_pos ++;
-					break;
-				} else if ($source_id < $target_id) {
-					// source miss
-					$target_miss ++;
-
-					$source_pos ++;
-					break;
-				} else {
-					// target miss
-					$source_miss ++;
-					$target_pos ++;
-				}
-			}
-			if ($target_pos >= $target_size) {
-				break;
-			}
-		}
-
-		// do remain
-		if ($insert_count > 0) {
-			echo "do sql:\n";
-			$sql = $sql." END WHERE fund_code in ({$id_list}) ";
-			$ret=DB::runSql($sql);
-		}
-
-		echo "source missing : ";
-		echo "{$source_miss} \n";
-		echo "target missing: ";
-		echo "{$target_miss} \n";
-	}
-
-	function execute_syn_fund_manager_funds_fund_mastercode(&$sql, &$id_list, $item, &$insert_count, $margin) {
-
-		if ($insert_count != 0) {
-			$sql = $sql." ";
-			$id_list = $id_list.",";
-		} else {
-			$sql = "update test_fund_manager_funds set master_fund_code = case ";
-		}
-
-		$sql = $sql."WHEN fund_code = {$item["SYMBOL"]} THEN '{$item["MASTERFUNDCODE"]}'";
-		$id_list = $id_list." {$item["SYMBOL"]}";
-
-		if ( ($insert_count % $margin) == ($margin - 1) ) {
-			echo "do sql\n";
-			$sql = $sql." END WHERE fund_code in ({$id_list}) ";
-			$ret = DB::runSql($sql);
-			$sql = "";
-			$id_list = "";
-			$insert_count = 0;
-		} else {
-			$insert_count ++;
-		}
-	}
-
-	/**
-	 * update table: fund_manager_funds
-	 */
-	function syn_fund_manager_funds_SE_time () {
-		// get  $source_data
-		echo "get source data";
-		$sql = 'select MASTERFUNDCODE, FULLNAME, SERVICESTARTDATE, SERVICEENDDATE from [dbo].[FUND_FUNDMANAGER] ORDER BY MASTERFUNDCODE, FULLNAME';
-		$source_data = self::getData($sql);
-		$source_size = count($source_data);
-
-		// get  $get target code ids
-		echo "get target data";
-		$sql = 'SELECT `master_fund_code`, `manager_name` from test_fund_manager_funds  ORDER BY `master_fund_code`, `manager_name`';
-		$target_data = DB::getData($sql);
-		$target_size = count($target_data);
-		/*
-		echo "target: ";
-		var_dump($target_data);
-		echo "source: ";
-		var_dump($source_data);
-		*/
-		// check for match, then update
-		$insert_count = 0;
-		$sql = "";
-		$margin = 50;
-		$source_miss = 0;
-		$target_miss = 0;
-		$source_start = 0;
-		$source_end = -1;
-		$target_start = 0;
-		$target_end = -1;
-		$sql_start = "";
-		$sql_end = "";
-		$symbol_list = "";
-		$name_list = "";
-		for (; $source_start < $source_size; ) {
-			$this->get_start_and_end_pos($source_data, "MASTERFUNDCODE", $source_size, $source_start, $source_end);
-			for (; $target_start < $target_size; ) {
-				$this->get_start_and_end_pos($target_data, "master_fund_code", $target_size, $target_start, $target_end);
-				echo "source: {$source_start}, {$source_end}; target: {$target_start}, {$target_end}  \n ";
-				$source_id = $source_data[$source_start]["MASTERFUNDCODE"];
-				$target_id = $target_data[$target_start]["master_fund_code"];
-
-				if ($target_id == $source_id) {
-					// do it
-					$this->syn_fund_manager_funds_SE_time_per_fund($sql_start, $sql_end, $symbol_list, $name_list, $insert_count, $source_data, $source_start, $source_end, $target_data, $target_start, $target_end, $margin);
-
-					if ($source_id == '000545') {
-						var_dump($source_data[$source_start]);
-						var_dump($source_data[$source_end]);
-						var_dump($target_data[$target_start]);
-						var_dump($target_data[$target_end]);
-					}
-					echo "hit {$source_id}, {$source_data[$source_start]["SERVICESTARTDATE"]}, {$target_data[$target_start]["master_fund_code"]}\n";
-					$source_start = $source_end + 1;
-					$target_start = $target_end + 1;
-					break;
-				} else if ($source_id < $target_id) {
-					// target miss
-					$target_miss ++;
-					echo "target miss; source id : {$source_id}\n";
-
-					$source_start = $source_end + 1;
-					break;
-				} else {
-					// source miss
-					$source_miss ++;
-					echo "source miss; target id : {$target_id}\n";
-					$target_start = $target_end + 1;
-				}
-			}
-			if ($target_start >= $target_size) {
-				break;
-			}
-		}
-
-		// do remain
-		if ($insert_count > 0) {
-			echo "do sql:\n";
-			$sql_start = $sql_start." END WHERE master_fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
-			$sql_end = $sql_end." END WHERE master_fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
-			$ret = DB::runSql($sql_start);
-			$ret = DB::runSql($sql_end);
-		}
-
-		echo "source missing : ";
-		echo "{$source_miss} \n";
-		echo "target missing: ";
-		echo "{$target_miss} \n";
-	}
-
-	function syn_fund_manager_funds_SE_time_per_fund(&$sql_start, &$sql_end, &$symbol_list, &$name_list, &$insert_count, $source_data, $source_start, $source_end, $target_data, $target_start, $target_end, $margin) {
-		$source_pos = $source_start;
-		$target_pos = $target_start;
-		for (; $source_pos < $source_end + 1; $source_pos ++) {
-			for ($target_pos = $target_start; $target_pos < $target_end + 1; $target_pos ++) {
-				$source_id = $source_data[$source_pos]["FULLNAME"];
-				$target_id = $target_data[$target_pos]["manager_name"];
-
-				if ($target_id == $source_id) {
-					// do it
-					$this->syn_fund_manager_funds_SE_time_per_item($sql_start, $sql_end, $symbol_list, $name_list, $insert_count, $source_data[$source_pos], $margin);
-
-					echo "{$source_id}, {$source_data[$source_pos]["SERVICESTARTDATE"]}, {$target_data[$target_pos]["manager_name"]}\n";
-					break;
-				}
-			}
-		}
-	}
-
-	function syn_fund_manager_funds_SE_time_per_item(&$sql_start, &$sql_end, &$symbol_list, &$name_list, &$insert_count, $item, $margin) {
-		echo "in loop\n";
-		// warning: add hoc: 韩会永：duplicate for 001003 in howbuy
-
-		if ($insert_count != 0) {
-			$sql_start = $sql_start." ";
-			$sql_end = $sql_end." ";
-			$name_list = $name_list.",";
-			$symbol_list = $symbol_list.",";
-		} else {
-			$sql_start = "update ignore test_fund_manager_funds set start_date = case ";
-			$sql_end = "update ignore test_fund_manager_funds set end_date = case ";
-		}
-		if ( strlen($item["SERVICESTARTDATE"]) > 2 ){
-			$start_time = substr($item["SERVICESTARTDATE"], 0, 10);
-		} else {
-			$start_time = $item["SERVICESTARTDATE"];
-		}
-
-		if ($item["SERVICEENDDATE"] == null) {
-			$end_time = '至今';
-		} else if ( $item["SERVICEENDDATE"] > 10 ) {
-			$end_time = substr($item["SERVICEENDDATE"], 0, 10);
-		} else {
-			$end_time = $item["SERVICEENDDATE"];
-		}
-
-		$sql_start = $sql_start." WHEN master_fund_code = {$item["MASTERFUNDCODE"]} and  manager_name = '{$item["FULLNAME"]}' THEN '{$start_time}'";
-		$sql_end = $sql_end." WHEN master_fund_code = {$item["MASTERFUNDCODE"]} and  manager_name = '{$item["FULLNAME"]}' THEN '{$end_time}'";
-		$symbol_list = $symbol_list." '{$item["MASTERFUNDCODE"]}'";
-		$name_list = $name_list." '{$item["FULLNAME"]}'";
-
-		if ( ($insert_count % $margin) == ($margin - 1) ) {
-			echo "do sql\n";
-			$sql_start = $sql_start." END WHERE master_fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
-			$sql_end = $sql_end." END WHERE master_fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
-			$ret = DB::runSql($sql_start);
-			$ret = DB::runSql($sql_end);
-			var_dump($sql_start);
-			$sql_start = "";
-			$sql_end = "";
-			$name_list = "";
-			$symbol_list = "";
-			$insert_count = 0;
-		} else {
-			$insert_count ++;
-		}
-	}
-
-	function get_start_and_end_pos(&$data, $field, $size, $start_pos, &$end_pos) {
-		echo "get_start_and_end_pos: ";
-		$id = $data[$start_pos][$field];
-		$end_pos = $start_pos;
-		for (; $end_pos < $size; $end_pos ++) {
-			if ( $data[$end_pos][$field] != $id ) {
-				break;
-			}
-		}
-		$end_pos --;
-		echo " {$id}, {$field}, {$start_pos}, {$end_pos}\n";
-	}
-
-	function syn_fund_manager_funds_manager_code() {
-		$sql = "select manager_code, fund_code, name from wangyu_test order by fund_code";
-		$source_data = DB::getData($sql);
-		$source_size = count($source_data);
-
-
-		$sql = "select fund_code, manager_name from test_fund_manager_funds order by fund_code";
-		$target_data = DB::getData($sql);
-		$target_size = count($target_data);
-
-		// check for match, then update
-		$source_pos = 0;
-		$target_pos = 0;
-		$insert_count = 0;
-		$sql = "";
-		$margin = 50;
-		$source_miss = 0;
-		$target_miss = 0;
-		$source_start = 0;
-		$source_end = -1;
-		$target_start = 0;
-		$target_end = -1;
-		$sql = "";
-		$symbol_list = "";
-		$name_list = "";
-		for (; $source_start < $source_size; ) {
-			$this->get_start_and_end_pos($source_data, "fund_code", $source_size, $source_start, $source_end);
-			for (; $target_start < $target_size; ) {
-				$this->get_start_and_end_pos($target_data, "fund_code", $target_size, $target_start, $target_end);
-				$source_id = $source_data[$source_start]["fund_code"];
-				$target_id = $target_data[$target_start]["fund_code"];
-
-				if ($target_id == $source_id) {
-					// do it
-					$this->syn_fund_manager_funds_manager_code_per_fund($sql, $symbol_list, $name_list, $insert_count, $source_data, $source_start, $source_end, $target_data, $target_start, $target_end, $margin);
-
-					echo "{$source_id}, {$source_data[$source_pos]["name"]}, {$target_data[$target_pos]["fund_code"]}\n";
-					$source_start = $source_end + 1;
-					$target_start = $target_end + 1;
-					break;
-				} else if ($source_id < $target_id) {
-					// target miss
-					$target_miss ++;
-					$this->get_start_and_end_pos($source_data, "fund_code", $source_size, $source_start, $source_end);
-
-					$source_start = $source_end + 1;
-					break;
-				} else {
-					// source miss
-					$source_miss ++;
-					$this->get_start_and_end_pos($target_data, "fund_code", $target_size, $target_start, $target_end);
-					$target_start = $target_end + 1;
-				}
-			}
-			if ($target_start >= $target_size) {
-				break;
-			}
-		}
-
-		// do remain
-		if ($insert_count > 0) {
-			echo "do sql\n";
-			$sql = $sql." END WHERE fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
-			$ret = DB::runSql($sql);
-			$sql = "";
-			$insert_count = 0;
-		}
-
-		echo "source missing : ";
-		echo "{$source_miss} \n";
-		echo "target missing: ";
-		echo "{$target_miss} \n";
-
-	}
-
-	function syn_fund_manager_funds_manager_code_per_fund(&$sql, &$symbol_list, &$name_list, &$insert_count, $source_data, $source_start, $source_end, $target_data, $target_start, $target_end, $margin) {
-		$source_pos = $source_start;
-		$target_pos = $target_start;
-		for (; $source_pos < $source_end + 1; $source_pos ++) {
-			for ($target_pos = $target_start; $target_pos < $target_end + 1; $target_pos ++) {
-				$source_id = $source_data[$source_pos]["name"];
-				$target_id = $target_data[$target_pos]["manager_name"];
-
-				if ($target_id == $source_id) {
-					// do it
-					$this->syn_fund_manager_funds_manager_code_per_item($sql, $symbol_list, $name_list, $insert_count, $source_data[$source_pos], $margin);
-
-					echo "{$source_id}, {$source_data[$source_pos]["manager_code"]}, {$target_data[$target_pos]["manager_name"]}\n";
-					break;
-				}
-			}
-		}
-	}
-
-
-	function syn_fund_manager_funds_manager_code_per_item(&$sql, &$symbol_list, &$name_list, &$insert_count, $item, $margin) {
-		if ($insert_count != 0) {
-			$sql = $sql." ";
-			$name_list = $name_list.",";
-			$symbol_list = $symbol_list.",";
-		} else {
-			$sql = "update test_fund_manager_funds set manager_code = case ";
-		}
-
-		$sql = $sql." WHEN fund_code = '{$item["fund_code"]}' and  manager_name = '{$item["name"]}' THEN '{$item["manager_code"]}'";
-		$symbol_list = $symbol_list." '{$item["fund_code"]}'";
-		$name_list = $name_list." '{$item["name"]}'";
-
-		if ( ($insert_count % $margin) == ($margin - 1) ) {
-			echo "do sql\n";
-			$sql = $sql." END WHERE fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
-			$ret = DB::runSql($sql);
-			$sql = "";
-			$name_list = "";
-			$symbol_list = "";
-			$insert_count = 0;
-		} else {
-			$insert_count ++;
-		}
-	}
-
-	/**
-	 * update table: fund_manager_funds
-	 * start_date, end_date: get from sql server
-	 */
-	function syn_fund_manager_funds() {
-
-		DB::runSql("TRUNCATE table test_fund_manager_funds");
-		// generate manager info url
-		$url="http://www.howbuy.com/fund/manager/";
-		$html_data = file_get_contents($url);
-
-		// get table
-		$url_list = [];
-		$ret = preg_match_all('/<table([\s\S\w\W\d\D]*?)<\/table>/', $html_data, $match_tables);
-		$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $match_tables[0][0], $arrays);
-		$this->construct_manager_url($url_list, $arrays[0]);
-
-		$ret = preg_match_all('/<textarea([\s\S\w\W\d\D]*?)<\/textarea>/', $html_data, $match_tables);
-		foreach($match_tables[0] as $items) {
-			//echo "wangyu\n";
-			//var_dump($items);
-			$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $items, $arrays);
-			$this->construct_manager_url($url_list, $arrays[0]);
-		}
-		//var_dump($url_list);
-		echo "wangyu split --\n";
-
-		// get manager info from url and store it into table
-		$insert_count = 0;
-		$margin = 50;
-		$sql = "";
-		foreach ($url_list as $url) {
-			$this->execute_syn_fund_manager_info($url[0], $url[1], $url[2], $sql, $insert_count, $margin);
-		}
-		if ($insert_count > 0) {
-			echo "do sql:\n";
-			$ret=DB::runSql($sql);
-		}
-
-		// end
-
-	}
-
-	function construct_manager_url(&$url_list, $array) {
-
-		foreach ($array as $item) {
-			//var_dump($item);
-			$ret = preg_match_all('/<td><a href="([\s\S\w\W\d\D]*?) target="_blank([\s\S\w\W\d\D]*?)</', $item, $part);
-			if ($ret > 0) {
-				//echo "wangyu 2\n";
-				$tmp_list = [];
-				$ret = preg_match_all('/"\/.*\/"/', $part[0][0], $url);
-				if ($ret>0) {
-					$single_url = $url[0][0];
-					//echo "{$single_url}\n";
-					$len = strlen($single_url);
-					if (substr($single_url, 1, 1) == "/") {
-						$single_url = "http://www.howbuy.com".substr($single_url, 1, $len-2);
-						array_push($tmp_list, $single_url);
-					}
-					$p1 = strrpos($single_url, "manager/");
-					$len = strlen($single_url);
-					$manager_id = substr($single_url, $p1+8, $len - $p1 - 9);
-					array_push($tmp_list, $manager_id);
-				}
-
-				$ret = preg_match_all('/">.*</', $part[0][0], $name);
-				if ($ret>0) {
-					$manager_name = $name[0][0];
-					$len = strlen($manager_name);
-					$manager_name = substr($manager_name, 2, $len-3);
-					array_push($tmp_list, $manager_name);
-				}
-				array_push($url_list, $tmp_list);
-			}
-		}
-
-	}
-
-	function execute_syn_fund_manager_info($url, $manager_code, $manager_name, &$sql, &$insert_count, $margin) {
-		// get information
-		$html_data = file_get_contents($url);
-		$info_list = [];
-		$flag = $this->parse_one_manager_info($html_data, $info_list);
-		if ($flag == false) {
-			echo "parse_one_manager_info error\n";
-			return;
-		}
-		//echo "info list\n";
-		//var_dump($info_list);
-
-		if ($insert_count != 0) {
-
-		} else {
-			$sql = "INSERT INTO `test_fund_manager_funds` (`fund_code`, `fund_name`, `manager_code`, `manager_name`, `fund_type`, `payback`, `fund_size`, `maxlos`, `average`, `rank`) values ";
-		}
-		foreach($info_list as $info) {
-			if (substr($sql, -1) != " ") {
-				$sql = $sql.", ";
-			}
-			$sql = $sql."('{$info["fund_code"]}', '{$info["short_name"]}', '{$manager_code}', '{$manager_name}', '{$info["type"]}','{$info["pay_back"]}','{$info["fund_size"]}','{$info["draw_back"]}','{$info["benchmark"]}','{$info["rank"]}')";
-		}
-
-		if ( ($insert_count % $margin) == ($margin - 1) ) {
-			echo "do sql\n";
-			var_dump($sql);
-			echo "wangyu split--\n";
-			$ret = DB::runSql($sql);
-			$sql = "";
-			$insert_count = 0;
-		} else {
-			$insert_count ++;
-		}
-	}
-
-	/**
-	 * one url maps one manager info
-	 */
-	function parse_one_manager_info($html_data, &$info_list) {
-		// get_name
-		$ret = preg_match_all('/<title>([\s\S\w\W\d\D]*?) /', $html_data, $name_data);
-		$manager_name = "";
-		if ($ret > 0) {
-			$tmpS = $name_data[0][0];
-			$manager_name = substr($tmpS, 7, strlen($tmpS) - 8);
-		}
-		echo "manager_name {$manager_name}\n";
-
-		$ret = preg_match_all('/基金概况([\s\S\w\W\d\D]*?)<\/table>/', $html_data, $extra_table_data);
-		//echo "extra_table_data[0][0]";
-		//var_dump($extra_table_data[0][0]);
-		if (0 == $ret) {
-			//var_dump($html_data);
-			echo "no current fund\n";
-		} else {
-		$ret = preg_match_all('/<table([\s\S\w\W\d\D]*?)<\/table>/', $extra_table_data[0][0],  $table_data);
-		$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $table_data[0][0], $fund_list);
-		$fund_list = $fund_list[0];
-		// 删除一个行标题栏
-		array_shift($fund_list);
-		foreach ($fund_list as $fund) {
-			$ret = preg_match_all('/<td([\s\S\w\W\d\D]*?)<\/td>/', $fund, $items);
-			$items = $items[0];
-			$size = count($items);
-			//echo "single item:\n";
-			//var_dump($items);
-			$tmp_array = [];
-			for ($pos = 0; $pos < $size; $pos++) {
-				switch ($pos) {
-					case 0: // parse short name
-						$ret = preg_match_all('/id=([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-						//echo "pos=0 ";
-						//var_dump($res_string);
-						//var_dump($ret);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$firstP = stripos($tmpS, ">") + 1;
-							//var_dump($tmpS);
-							//var_dump($len);
-							//var_dump($firstP);
-							//var_dump(substr($tmpS, $firstP, $len-1-$firstP));
-							$tmp_array["short_name"] = substr($tmpS, $firstP, $len-1-$firstP);
-						}
-						$ret = preg_match_all('/href=".*"/', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$firstP = stripos($tmpS, "fund/") + 5;
-							$tmp_array["fund_code"] = substr($tmpS, $firstP, $len-2-$firstP);
-						} else {
-							$tmp_array['fund_code'] = "NA";
-						}
-						//var_dump($tmp_array);
-						//echo "pos =0 end \n";
-						break;
-					case 1: // parse type
-						$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$tmp_array["type"] = substr($tmpS, 1, $len-2);
-						}
-						break;
-					case 2: // parse size
-						$ret = preg_match_all('/c333">([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$tmp_array["fund_size"] = trim(substr($tmpS, 6, $len-7));
-						}
-						break;
-					case 3: // parse time
-						$ret = preg_match_all('/c333">([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$tmp_array["time"] = substr($tmpS, 6, $len-7);
-						}
-						break;
-					case 4: // parse max back draw
-						$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$firstP = stripos($tmpS, ">") + 1;
-							$tmp_array["draw_back"] = substr($tmpS, $firstP, $len-1-$firstP);
-						} else {
-							$tmp_array["draw_back"] = "--";
-						}
-						break;
-					case 5: // parse pay back
-						$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$firstP = stripos($tmpS, ">") + 1;
-							$tmp_array["pay_back"] = substr($tmpS, $firstP, $len-1-$firstP);
-						} else {
-							$tmp_array["pay_back"] = "--";
-						}
-						break;
-					case 6: // parse benchmark average
-						$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$firstP = stripos($tmpS, ">") + 1;
-							$tmp_array["benchmark"] = substr($tmpS, $firstP, $len-1-$firstP);
-						} else {
-							$tmp_array["benchmark"] = "--";
-						}
-						break;
-					case 7: // parse rank
-						//echo "pos = 7";
-						$ret = preg_match_all('/c333">([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$tmp_S1 = substr($tmpS, 6, $len-7);
-							$ret = preg_match_all('/c999\'>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-							if ($ret > 0) {
-								$tmpS = $res_string[0][0];
-								$len = strlen($tmpS);
-								$tmp_S2 = substr($tmpS, 6, $len-7);
-								$tmpS = $tmp_S1.$tmp_S2;
-								$tmp_array["rank"] = $tmpS;
-							} else {
-								$tmp_array["rank"] = "--";
-							}
-						} else {
-							$tmp_array["rank"] = "--";
-						}
-						//var_dump($tmp_array);
-						//echo "pos = 7 end\n";
-						break;
-					/*
-					case 8: // parse fund_code
-						$ret = preg_match_all('/fundCode=.*"/', $items[$pos], $res_string);
-						if ($ret > 0) {
-							$tmpS = $res_string[0][0];
-							$len = strlen($tmpS);
-							$firstP = stripos($tmpS, "=") + 1;
-							$tmp_array["fund_code"] = substr($tmpS, $firstP, $len-1-$firstP);
-						} else {
-							$tmp_array['fund_code'] = "NA";
-						}
-					*/
-
-				}
-
-			}
-			$tmp_array["manager_name"] = $manager_name;
-			array_push($info_list, $tmp_array);
-			//var_dump($tmp_array);
-		}
-		}
-
-		// parse history fund
-		echo "enter history\n";
-		$startP = strpos($html_data, "<div class=\"history_content");
-		if ($startP == false) {
-			return true;
-		}
-		$endP = $this->get_pattern_pos($html_data, "<div", "</div", $startP+1);
-		//var_dump($endP);
-		if ($endP == false) {
-			return true;
-		}
-		// delete titile
-		$startP = strpos($html_data, "<tr", $startP + 10);
-		if ($startP  == false) {
-			return true;
-		}
-		//var_dump($startP);
-		$startP = strpos($html_data, "<tr", $startP + 10);
-		if ($startP  == false) {
-			return true;
-		}
-		//var_dump($startP);
-		$hist_data = substr($html_data, $startP - 1, $endP - $startP); 
-		$startP = strpos($hist_data, "<tr", 0);
-		//echo "hist: data:\n";
-		//var_dump($hist_data);
-		//var_dump($startP);
-		while ($startP !== false) {
-			$next_endP = self::get_pattern_pos($hist_data, "<tr", "</tr", $startP+1);
-			//var_dump($endP);
-			if ($next_endP === false) {
-				break;
-			}
-			$target_data = substr($hist_data, $startP, $next_endP - $startP + 1);
-			echo "target_data: \n";
-			//var_dump($target_data);
-			// parse company
-			$tmpS = $this->get_patten_string($target_data, "<td", "</td", 0, $endP);
-			//var_dump($tmpS);
-			//var_dump($endP);
-			$tmpS = $this->get_patten_string($tmpS, "href=", "<", 0, $endP);
-			$tmpS = $this->get_patten_string($tmpS, ">", "<", 0, $endP);
-			$company_name = substr($tmpS, 1, strlen($tmpS) - 2);
-
-			// parse  after
-			$startP = $endP;
-			$tmpS = $this->get_patten_string($target_data, "<td", "</td", $startP, $endP);
-			//echo "part manager data: \n";
-			//var_dump($tmpS);
-			$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $tmpS, $fund_list);
-			$fund_list = $fund_list[0];
-
-			foreach ($fund_list as $fund) {
-				$ret = preg_match_all('/<td([\s\S\w\W\d\D]*?)<\/td>/', $fund, $items);
-				$items = $items[0];
-				$size = count($items);
-				//echo "single item:\n";
-				//var_dump($items);
-				$tmp_array = [];
-				for ($pos = 0; $pos < $size; $pos++) {
-					switch ($pos) {
-						case 0: // parse short name
-							$ret = preg_match_all('/id=([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-							//echo "pos=0 ";
-							//var_dump($res_string);
-							//var_dump($ret);
-							if ($ret > 0) {
-								$tmpS = $res_string[0][0];
-								$len = strlen($tmpS);
-								$firstP = stripos($tmpS, ">") + 1;
-								//var_dump($tmpS);
-								//var_dump($len);
-								//var_dump($firstP);
-								//var_dump(substr($tmpS, $firstP, $len-1-$firstP));
-								$tmp_array["short_name"] = substr($tmpS, $firstP, $len - 1 - $firstP);
-							}
-							$ret = preg_match_all('/href="([\s\S\w\W\d\D]*?)"/', $items[$pos], $res_string);
-							if ($ret > 0) {
-								$tmpS = $res_string[0][0];
-								$len = strlen($tmpS);
-								$firstP = stripos($tmpS, "fund/") + 5;
-								$tmp_array["fund_code"] = substr($tmpS, $firstP, $len - 2 - $firstP);
-							} else {
-								$tmp_array['fund_code'] = "NA";
-							}
-							//var_dump($tmp_array);
-							//echo "pos =0 end \n";
-							break;
-						case 1: // parse type
-							$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-							if ($ret > 0) {
-								$tmpS = $res_string[0][0];
-								$len = strlen($tmpS);
-								$tmp_array["type"] = substr($tmpS, 1, $len - 2);
-							}
-							break;
-						case 3: // parse time
-							$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-							if ($ret > 0) {
-								$tmpS = $res_string[0][0];
-								$len = strlen($tmpS);
-								$tmp_array["time"] = substr($tmpS, 6, $len - 7);
-							}
-							break;
-
-						case 4: // parse pay back
-							$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-							if ($ret > 0) {
-								$tmpS = $res_string[0][0];
-								$len = strlen($tmpS);
-								$firstP = stripos($tmpS, ">") + 1;
-								$tmp_array["pay_back"] = substr($tmpS, $firstP, $len - 1 - $firstP);
-							} else {
-								$tmp_array["pay_back"] = "--";
-							}
-							break;
-						case 5: // parse benchmark average
-							$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-							if ($ret > 0) {
-								$tmpS = $res_string[0][0];
-								$len = strlen($tmpS);
-								$firstP = stripos($tmpS, ">") + 1;
-								$tmp_array["benchmark"] = substr($tmpS, $firstP, $len - 1 - $firstP);
-							} else {
-								$tmp_array["benchmark"] = "--";
-							}
-							break;
-						case 6: // parse rank
-							//echo "pos = 7";
-							$ret = preg_match_all('/c333">([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-							if ($ret > 0) {
-								$tmpS = $res_string[0][0];
-								$len = strlen($tmpS);
-								$tmp_S1 = substr($tmpS, 6, $len - 7);
-								$ret = preg_match_all('/c999\'>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
-								if ($ret > 0) {
-									$tmpS = $res_string[0][0];
-									$len = strlen($tmpS);
-									$tmp_S2 = substr($tmpS, 6, $len - 7);
-									$tmpS = $tmp_S1 . $tmp_S2;
-									$tmp_array["rank"] = $tmpS;
-								} else {
-									$tmp_array["rank"] = "--";
-								}
-							} else {
-								$tmp_array["rank"] = "--";
-							}
-							//var_dump($tmp_array);
-							//echo "pos = 7 end\n";
-							break;
-						/*
-                        case 8: // parse fund_code
-                            $ret = preg_match_all('/fundCode=.*"/', $items[$pos], $res_string);
-                            if ($ret > 0) {
-                                $tmpS = $res_string[0][0];
-                                $len = strlen($tmpS);
-                                $firstP = stripos($tmpS, "=") + 1;
-                                $tmp_array["fund_code"] = substr($tmpS, $firstP, $len-1-$firstP);
-                            } else {
-                                $tmp_array['fund_code'] = "NA";
-                            }
-                        */
-
-					}
-
-				}
-				$tmp_array["manager_name"] = $manager_name;
-				$tmp_array["fund_size"] = "--";
-				$tmp_array["draw_back"] = "--";
-				//echo "hist parse result: \n";
-				//var_dump($tmp_array);
-				array_push($info_list, $tmp_array);
-			}
-
-			$startP = strpos($hist_data, "<tr", $next_endP+1);
-		}
-
-		return true;
-
-	}
-
-	function get_patten_string($data, $head, $end, $start_pos, &$end_pos) {
-		$p1 = strpos($data, $head, $start_pos);
-		if ($p1 === false) {
-			return false;
-		}
-		$p2 = $this->get_pattern_pos($data, $head, $end, $p1+1);
-		if ($p2 === false) {
-			return false;
-		}
-		$res = substr($data, $p1, $p2 - $p1);
-		$end_pos = $p2;
-		return $res;
-	}
-
-	function get_pattern_pos($data, $head, $end, $start_pos) {
-		/*
-			echo "get_pattern_pos\n";
-			//var_dump($data);
-			var_dump($head);
-			var_dump($end);
-			var_dump($start_pos);
-		//*/
-		$p1 = strpos($data, $head, $start_pos);
-		$p2 = strpos($data, $end, $start_pos);
-		while ($p2 != false) {
-			if ($p1 == false || $p2 < $p1) {
-				return $p2;
-			}
-			$start_pos = $p2 + 1;
-			$p1 = strpos($data, $head, $start_pos);
-			$p2 = strpos($data, $end, $start_pos);
-		}
-		return false;
-	}
-
-	// parse_manager_from tian tian jijin wang------------------------------------
 	function syn_fund_manager_funds_from_TT() {
 
 		//DB::runSql("TRUNCATE table test_fund_manager_funds_TT");
@@ -2742,7 +1906,726 @@ class mssql
 		return true;
 	}
 
+	// ------------------------------------------------------------------------------
 
+	/**
+	 * update table: fund_manager_funds
+	 * start_date, end_date: get from sql server
+	 */
+	function syn_fund_manager_funds() {
+
+		DB::runSql("TRUNCATE table test_fund_manager_funds");
+		// generate manager info url
+		$url="http://www.howbuy.com/fund/manager/";
+		$html_data = file_get_contents($url);
+
+		// get table
+		$url_list = [];
+		$ret = preg_match_all('/<table([\s\S\w\W\d\D]*?)<\/table>/', $html_data, $match_tables);
+		$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $match_tables[0][0], $arrays);
+		$this->construct_manager_url($url_list, $arrays[0]);
+
+		$ret = preg_match_all('/<textarea([\s\S\w\W\d\D]*?)<\/textarea>/', $html_data, $match_tables);
+		foreach($match_tables[0] as $items) {
+			//echo "wangyu\n";
+			//var_dump($items);
+			$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $items, $arrays);
+			$this->construct_manager_url($url_list, $arrays[0]);
+		}
+		//var_dump($url_list);
+		echo "wangyu split --\n";
+
+		// get manager info from url and store it into table
+		$insert_count = 0;
+		$margin = 50;
+		$sql = "";
+		foreach ($url_list as $url) {
+			$this->execute_syn_fund_manager_info($url[0], $url[1], $url[2], $sql, $insert_count, $margin);
+		}
+		if ($insert_count > 0) {
+			echo "do sql:\n";
+			$ret=DB::runSql($sql);
+		}
+
+		// end
+
+	}
+
+	function construct_manager_url(&$url_list, $array) {
+
+		foreach ($array as $item) {
+			//var_dump($item);
+			$ret = preg_match_all('/<td><a href="([\s\S\w\W\d\D]*?) target="_blank([\s\S\w\W\d\D]*?)</', $item, $part);
+			if ($ret > 0) {
+				//echo "wangyu 2\n";
+				$tmp_list = [];
+				$ret = preg_match_all('/"\/.*\/"/', $part[0][0], $url);
+				if ($ret>0) {
+					$single_url = $url[0][0];
+					//echo "{$single_url}\n";
+					$len = strlen($single_url);
+					if (substr($single_url, 1, 1) == "/") {
+						$single_url = "http://www.howbuy.com".substr($single_url, 1, $len-2);
+						array_push($tmp_list, $single_url);
+					}
+					$p1 = strrpos($single_url, "manager/");
+					$len = strlen($single_url);
+					$manager_id = substr($single_url, $p1+8, $len - $p1 - 9);
+					array_push($tmp_list, $manager_id);
+				}
+
+				$ret = preg_match_all('/">.*</', $part[0][0], $name);
+				if ($ret>0) {
+					$manager_name = $name[0][0];
+					$len = strlen($manager_name);
+					$manager_name = substr($manager_name, 2, $len-3);
+					array_push($tmp_list, $manager_name);
+				}
+				array_push($url_list, $tmp_list);
+			}
+		}
+
+	}
+
+	function execute_syn_fund_manager_info($url, $manager_code, $manager_name, &$sql, &$insert_count, $margin) {
+		// get information
+		$html_data = file_get_contents($url);
+		$info_list = [];
+		$flag = $this->parse_one_manager_info($html_data, $info_list);
+		if ($flag == false) {
+			echo "parse_one_manager_info error\n";
+			return;
+		}
+		//echo "info list\n";
+		//var_dump($info_list);
+
+		if ($insert_count != 0) {
+
+		} else {
+			$sql = "INSERT INTO `test_fund_manager_funds` (`fund_code`, `fund_name`, `manager_code`, `manager_name`, `fund_type`, `payback`, `fund_size`, `maxlos`, `average`, `rank`) values ";
+		}
+		foreach($info_list as $info) {
+			if (substr($sql, -1) != " ") {
+				$sql = $sql.", ";
+			}
+			$sql = $sql."('{$info["fund_code"]}', '{$info["short_name"]}', '{$manager_code}', '{$manager_name}', '{$info["type"]}','{$info["pay_back"]}','{$info["fund_size"]}','{$info["draw_back"]}','{$info["benchmark"]}','{$info["rank"]}')";
+		}
+
+		if ( ($insert_count % $margin) == ($margin - 1) ) {
+			echo "do sql\n";
+			var_dump($sql);
+			echo "wangyu split--\n";
+			$ret = DB::runSql($sql);
+			$sql = "";
+			$insert_count = 0;
+		} else {
+			$insert_count ++;
+		}
+	}
+
+	/**
+	 * one url maps one manager info
+	 */
+	function parse_one_manager_info($html_data, &$info_list) {
+		// get_name
+		$ret = preg_match_all('/<title>([\s\S\w\W\d\D]*?) /', $html_data, $name_data);
+		$manager_name = "";
+		if ($ret > 0) {
+			$tmpS = $name_data[0][0];
+			$manager_name = substr($tmpS, 7, strlen($tmpS) - 8);
+		}
+		echo "manager_name {$manager_name}\n";
+
+		$ret = preg_match_all('/基金概况([\s\S\w\W\d\D]*?)<\/table>/', $html_data, $extra_table_data);
+		//echo "extra_table_data[0][0]";
+		//var_dump($extra_table_data[0][0]);
+		if (0 == $ret) {
+			//var_dump($html_data);
+			echo "no current fund\n";
+		} else {
+			$ret = preg_match_all('/<table([\s\S\w\W\d\D]*?)<\/table>/', $extra_table_data[0][0],  $table_data);
+			$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $table_data[0][0], $fund_list);
+			$fund_list = $fund_list[0];
+			// 删除一个行标题栏
+			array_shift($fund_list);
+			foreach ($fund_list as $fund) {
+				$ret = preg_match_all('/<td([\s\S\w\W\d\D]*?)<\/td>/', $fund, $items);
+				$items = $items[0];
+				$size = count($items);
+				//echo "single item:\n";
+				//var_dump($items);
+				$tmp_array = [];
+				for ($pos = 0; $pos < $size; $pos++) {
+					switch ($pos) {
+						case 0: // parse short name
+							$ret = preg_match_all('/id=([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							//echo "pos=0 ";
+							//var_dump($res_string);
+							//var_dump($ret);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, ">") + 1;
+								//var_dump($tmpS);
+								//var_dump($len);
+								//var_dump($firstP);
+								//var_dump(substr($tmpS, $firstP, $len-1-$firstP));
+								$tmp_array["short_name"] = substr($tmpS, $firstP, $len-1-$firstP);
+							}
+							$ret = preg_match_all('/href=".*"/', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, "fund/") + 5;
+								$tmp_array["fund_code"] = substr($tmpS, $firstP, $len-2-$firstP);
+							} else {
+								$tmp_array['fund_code'] = "NA";
+							}
+							//var_dump($tmp_array);
+							//echo "pos =0 end \n";
+							break;
+						case 1: // parse type
+							$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$tmp_array["type"] = substr($tmpS, 1, $len-2);
+							}
+							break;
+						case 2: // parse size
+							$ret = preg_match_all('/c333">([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$tmp_array["fund_size"] = trim(substr($tmpS, 6, $len-7));
+							}
+							break;
+						case 3: // parse time
+							$ret = preg_match_all('/c333">([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$tmp_array["time"] = substr($tmpS, 6, $len-7);
+							}
+							break;
+						case 4: // parse max back draw
+							$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, ">") + 1;
+								$tmp_array["draw_back"] = substr($tmpS, $firstP, $len-1-$firstP);
+							} else {
+								$tmp_array["draw_back"] = "--";
+							}
+							break;
+						case 5: // parse pay back
+							$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, ">") + 1;
+								$tmp_array["pay_back"] = substr($tmpS, $firstP, $len-1-$firstP);
+							} else {
+								$tmp_array["pay_back"] = "--";
+							}
+							break;
+						case 6: // parse benchmark average
+							$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, ">") + 1;
+								$tmp_array["benchmark"] = substr($tmpS, $firstP, $len-1-$firstP);
+							} else {
+								$tmp_array["benchmark"] = "--";
+							}
+							break;
+						case 7: // parse rank
+							//echo "pos = 7";
+							$ret = preg_match_all('/c333">([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$tmp_S1 = substr($tmpS, 6, $len-7);
+								$ret = preg_match_all('/c999\'>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+								if ($ret > 0) {
+									$tmpS = $res_string[0][0];
+									$len = strlen($tmpS);
+									$tmp_S2 = substr($tmpS, 6, $len-7);
+									$tmpS = $tmp_S1.$tmp_S2;
+									$tmp_array["rank"] = $tmpS;
+								} else {
+									$tmp_array["rank"] = "--";
+								}
+							} else {
+								$tmp_array["rank"] = "--";
+							}
+							//var_dump($tmp_array);
+							//echo "pos = 7 end\n";
+							break;
+						/*
+                        case 8: // parse fund_code
+                            $ret = preg_match_all('/fundCode=.*"/', $items[$pos], $res_string);
+                            if ($ret > 0) {
+                                $tmpS = $res_string[0][0];
+                                $len = strlen($tmpS);
+                                $firstP = stripos($tmpS, "=") + 1;
+                                $tmp_array["fund_code"] = substr($tmpS, $firstP, $len-1-$firstP);
+                            } else {
+                                $tmp_array['fund_code'] = "NA";
+                            }
+                        */
+
+					}
+
+				}
+				$tmp_array["manager_name"] = $manager_name;
+				array_push($info_list, $tmp_array);
+				//var_dump($tmp_array);
+			}
+		}
+
+		// parse history fund
+		echo "enter history\n";
+		$startP = strpos($html_data, "<div class=\"history_content");
+		if ($startP == false) {
+			return true;
+		}
+		$endP = $this->get_pattern_pos($html_data, "<div", "</div", $startP+1);
+		//var_dump($endP);
+		if ($endP == false) {
+			return true;
+		}
+		// delete titile
+		$startP = strpos($html_data, "<tr", $startP + 10);
+		if ($startP  == false) {
+			return true;
+		}
+		//var_dump($startP);
+		$startP = strpos($html_data, "<tr", $startP + 10);
+		if ($startP  == false) {
+			return true;
+		}
+		//var_dump($startP);
+		$hist_data = substr($html_data, $startP - 1, $endP - $startP);
+		$startP = strpos($hist_data, "<tr", 0);
+		//echo "hist: data:\n";
+		//var_dump($hist_data);
+		//var_dump($startP);
+		while ($startP !== false) {
+			$next_endP = self::get_pattern_pos($hist_data, "<tr", "</tr", $startP+1);
+			//var_dump($endP);
+			if ($next_endP === false) {
+				break;
+			}
+			$target_data = substr($hist_data, $startP, $next_endP - $startP + 1);
+			echo "target_data: \n";
+			//var_dump($target_data);
+			// parse company
+			$tmpS = $this->get_patten_string($target_data, "<td", "</td", 0, $endP);
+			//var_dump($tmpS);
+			//var_dump($endP);
+			$tmpS = $this->get_patten_string($tmpS, "href=", "<", 0, $endP);
+			$tmpS = $this->get_patten_string($tmpS, ">", "<", 0, $endP);
+			$company_name = substr($tmpS, 1, strlen($tmpS) - 2);
+
+			// parse  after
+			$startP = $endP;
+			$tmpS = $this->get_patten_string($target_data, "<td", "</td", $startP, $endP);
+			//echo "part manager data: \n";
+			//var_dump($tmpS);
+			$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $tmpS, $fund_list);
+			$fund_list = $fund_list[0];
+
+			foreach ($fund_list as $fund) {
+				$ret = preg_match_all('/<td([\s\S\w\W\d\D]*?)<\/td>/', $fund, $items);
+				$items = $items[0];
+				$size = count($items);
+				//echo "single item:\n";
+				//var_dump($items);
+				$tmp_array = [];
+				for ($pos = 0; $pos < $size; $pos++) {
+					switch ($pos) {
+						case 0: // parse short name
+							$ret = preg_match_all('/id=([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							//echo "pos=0 ";
+							//var_dump($res_string);
+							//var_dump($ret);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, ">") + 1;
+								//var_dump($tmpS);
+								//var_dump($len);
+								//var_dump($firstP);
+								//var_dump(substr($tmpS, $firstP, $len-1-$firstP));
+								$tmp_array["short_name"] = substr($tmpS, $firstP, $len - 1 - $firstP);
+							}
+							$ret = preg_match_all('/href="([\s\S\w\W\d\D]*?)"/', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, "fund/") + 5;
+								$tmp_array["fund_code"] = substr($tmpS, $firstP, $len - 2 - $firstP);
+							} else {
+								$tmp_array['fund_code'] = "NA";
+							}
+							//var_dump($tmp_array);
+							//echo "pos =0 end \n";
+							break;
+						case 1: // parse type
+							$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$tmp_array["type"] = substr($tmpS, 1, $len - 2);
+							}
+							break;
+						case 3: // parse time
+							$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$tmp_array["time"] = substr($tmpS, 6, $len - 7);
+							}
+							break;
+
+						case 4: // parse pay back
+							$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, ">") + 1;
+								$tmp_array["pay_back"] = substr($tmpS, $firstP, $len - 1 - $firstP);
+							} else {
+								$tmp_array["pay_back"] = "--";
+							}
+							break;
+						case 5: // parse benchmark average
+							$ret = preg_match_all('/span([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$firstP = stripos($tmpS, ">") + 1;
+								$tmp_array["benchmark"] = substr($tmpS, $firstP, $len - 1 - $firstP);
+							} else {
+								$tmp_array["benchmark"] = "--";
+							}
+							break;
+						case 6: // parse rank
+							//echo "pos = 7";
+							$ret = preg_match_all('/c333">([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+							if ($ret > 0) {
+								$tmpS = $res_string[0][0];
+								$len = strlen($tmpS);
+								$tmp_S1 = substr($tmpS, 6, $len - 7);
+								$ret = preg_match_all('/c999\'>([\s\S\w\W\d\D]*?)</', $items[$pos], $res_string);
+								if ($ret > 0) {
+									$tmpS = $res_string[0][0];
+									$len = strlen($tmpS);
+									$tmp_S2 = substr($tmpS, 6, $len - 7);
+									$tmpS = $tmp_S1 . $tmp_S2;
+									$tmp_array["rank"] = $tmpS;
+								} else {
+									$tmp_array["rank"] = "--";
+								}
+							} else {
+								$tmp_array["rank"] = "--";
+							}
+							//var_dump($tmp_array);
+							//echo "pos = 7 end\n";
+							break;
+						/*
+                        case 8: // parse fund_code
+                            $ret = preg_match_all('/fundCode=.*"/', $items[$pos], $res_string);
+                            if ($ret > 0) {
+                                $tmpS = $res_string[0][0];
+                                $len = strlen($tmpS);
+                                $firstP = stripos($tmpS, "=") + 1;
+                                $tmp_array["fund_code"] = substr($tmpS, $firstP, $len-1-$firstP);
+                            } else {
+                                $tmp_array['fund_code'] = "NA";
+                            }
+                        */
+
+					}
+
+				}
+				$tmp_array["manager_name"] = $manager_name;
+				$tmp_array["fund_size"] = "--";
+				$tmp_array["draw_back"] = "--";
+				//echo "hist parse result: \n";
+				//var_dump($tmp_array);
+				array_push($info_list, $tmp_array);
+			}
+
+			$startP = strpos($hist_data, "<tr", $next_endP+1);
+		}
+
+		return true;
+
+	}
+
+	/*
+ 	 * update table test_fund_manager_funds mastercode,
+	 * used for start time and end time update
+	 * from mssql to sql
+ 	 */
+	function syn_fund_manager_fund_mastercode () {
+		// get  $source_data
+		$sql = 'select SYMBOL, MASTERFUNDCODE from [dbo].[FUND_FUNDCODEINFO] ORDER BY SYMBOL';
+		$source_data = self::getData($sql);
+		$source_size = count($source_data);
+
+		// get  $get target code ids
+		$sql = 'SELECT fund_code from test_fund_manager_funds ORDER BY fund_code';
+		$target_id_aray = DB::getData($sql);
+		$target_size = count($target_id_aray);
+
+		// check for match, then update
+		$source_pos = 0;
+		$target_pos = 0;
+		$insert_count = 0;
+		$sql = "";
+		$id_list = "";
+		$margin = 50;
+		$source_miss = 0;
+		$target_miss = 0;
+		for (; $source_pos < $source_size; ) {
+			for (; $target_pos < $target_size; ) {
+				$source_id = $source_data[$source_pos]["SYMBOL"];
+				$target_id = $target_id_aray[$target_pos]["fund_code"];
+
+				if ($target_id == $source_id) {
+					// do it
+					self::execute_syn_fund_manager_funds_fund_mastercode(
+						$sql, $id_list, $source_data[$source_pos], $insert_count, $margin
+					);
+					echo "{$source_id}, {$source_data[$source_pos]["MASTERFUNDCODE"]}, {$target_id_aray[$target_pos]["fund_code"]}\n";
+					$source_pos ++;
+					$target_pos ++;
+					break;
+				} else if ($source_id < $target_id) {
+					// source miss
+					$target_miss ++;
+
+					$source_pos ++;
+					break;
+				} else {
+					// target miss
+					$source_miss ++;
+					$target_pos ++;
+				}
+			}
+			if ($target_pos >= $target_size) {
+				break;
+			}
+		}
+
+		// do remain
+		if ($insert_count > 0) {
+			echo "do sql:\n";
+			$sql = $sql." END WHERE fund_code in ({$id_list}) ";
+			$ret=DB::runSql($sql);
+		}
+
+		echo "source missing : ";
+		echo "{$source_miss} \n";
+		echo "target missing: ";
+		echo "{$target_miss} \n";
+	}
+
+	function execute_syn_fund_manager_funds_fund_mastercode(&$sql, &$id_list, $item, &$insert_count, $margin) {
+
+		if ($insert_count != 0) {
+			$sql = $sql." ";
+			$id_list = $id_list.",";
+		} else {
+			$sql = "update test_fund_manager_funds set master_fund_code = case ";
+		}
+
+		$sql = $sql."WHEN fund_code = {$item["SYMBOL"]} THEN '{$item["MASTERFUNDCODE"]}'";
+		$id_list = $id_list." {$item["SYMBOL"]}";
+
+		if ( ($insert_count % $margin) == ($margin - 1) ) {
+			echo "do sql\n";
+			$sql = $sql." END WHERE fund_code in ({$id_list}) ";
+			$ret = DB::runSql($sql);
+			$sql = "";
+			$id_list = "";
+			$insert_count = 0;
+		} else {
+			$insert_count ++;
+		}
+	}
+
+	/**
+	 * update table: fund_manager_funds,
+	 * update start time and end time from mssql
+	 */
+	function syn_fund_manager_funds_SE_time () {
+		// get  $source_data
+		echo "get source data";
+		$sql = 'select MASTERFUNDCODE, FULLNAME, SERVICESTARTDATE, SERVICEENDDATE from [dbo].[FUND_FUNDMANAGER] ORDER BY MASTERFUNDCODE, FULLNAME';
+		$source_data = self::getData($sql);
+		$source_size = count($source_data);
+
+		// get  $get target code ids
+		echo "get target data";
+		$sql = 'SELECT `master_fund_code`, `manager_name` from test_fund_manager_funds  ORDER BY `master_fund_code`, `manager_name`';
+		$target_data = DB::getData($sql);
+		$target_size = count($target_data);
+		/*
+		echo "target: ";
+		var_dump($target_data);
+		echo "source: ";
+		var_dump($source_data);
+		*/
+		// check for match, then update
+		$insert_count = 0;
+		$sql = "";
+		$margin = 50;
+		$source_miss = 0;
+		$target_miss = 0;
+		$source_start = 0;
+		$source_end = -1;
+		$target_start = 0;
+		$target_end = -1;
+		$sql_start = "";
+		$sql_end = "";
+		$symbol_list = "";
+		$name_list = "";
+		for (; $source_start < $source_size; ) {
+			$this->get_start_and_end_pos($source_data, "MASTERFUNDCODE", $source_size, $source_start, $source_end);
+			for (; $target_start < $target_size; ) {
+				$this->get_start_and_end_pos($target_data, "master_fund_code", $target_size, $target_start, $target_end);
+				echo "source: {$source_start}, {$source_end}; target: {$target_start}, {$target_end}  \n ";
+				$source_id = $source_data[$source_start]["MASTERFUNDCODE"];
+				$target_id = $target_data[$target_start]["master_fund_code"];
+
+				if ($target_id == $source_id) {
+					// do it
+					$this->syn_fund_manager_funds_SE_time_per_fund($sql_start, $sql_end, $symbol_list, $name_list, $insert_count, $source_data, $source_start, $source_end, $target_data, $target_start, $target_end, $margin);
+
+					if ($source_id == '000545') {
+						var_dump($source_data[$source_start]);
+						var_dump($source_data[$source_end]);
+						var_dump($target_data[$target_start]);
+						var_dump($target_data[$target_end]);
+					}
+					echo "hit {$source_id}, {$source_data[$source_start]["SERVICESTARTDATE"]}, {$target_data[$target_start]["master_fund_code"]}\n";
+					$source_start = $source_end + 1;
+					$target_start = $target_end + 1;
+					break;
+				} else if ($source_id < $target_id) {
+					// target miss
+					$target_miss ++;
+					echo "target miss; source id : {$source_id}\n";
+
+					$source_start = $source_end + 1;
+					break;
+				} else {
+					// source miss
+					$source_miss ++;
+					echo "source miss; target id : {$target_id}\n";
+					$target_start = $target_end + 1;
+				}
+			}
+			if ($target_start >= $target_size) {
+				break;
+			}
+		}
+
+		// do remain
+		if ($insert_count > 0) {
+			echo "do sql:\n";
+			$sql_start = $sql_start." END WHERE master_fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
+			$sql_end = $sql_end." END WHERE master_fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
+			$ret = DB::runSql($sql_start);
+			$ret = DB::runSql($sql_end);
+		}
+
+		echo "source missing : ";
+		echo "{$source_miss} \n";
+		echo "target missing: ";
+		echo "{$target_miss} \n";
+	}
+
+	function syn_fund_manager_funds_SE_time_per_fund(&$sql_start, &$sql_end, &$symbol_list, &$name_list, &$insert_count, $source_data, $source_start, $source_end, $target_data, $target_start, $target_end, $margin) {
+		$source_pos = $source_start;
+		$target_pos = $target_start;
+		for (; $source_pos < $source_end + 1; $source_pos ++) {
+			for ($target_pos = $target_start; $target_pos < $target_end + 1; $target_pos ++) {
+				$source_id = $source_data[$source_pos]["FULLNAME"];
+				$target_id = $target_data[$target_pos]["manager_name"];
+
+				if ($target_id == $source_id) {
+					// do it
+					$this->syn_fund_manager_funds_SE_time_per_item($sql_start, $sql_end, $symbol_list, $name_list, $insert_count, $source_data[$source_pos], $margin);
+
+					echo "{$source_id}, {$source_data[$source_pos]["SERVICESTARTDATE"]}, {$target_data[$target_pos]["manager_name"]}\n";
+					break;
+				}
+			}
+		}
+	}
+
+	function syn_fund_manager_funds_SE_time_per_item(&$sql_start, &$sql_end, &$symbol_list, &$name_list, &$insert_count, $item, $margin) {
+		echo "in loop\n";
+		// warning: add hoc: 韩会永：duplicate for 001003 in howbuy
+
+		if ($insert_count != 0) {
+			$sql_start = $sql_start." ";
+			$sql_end = $sql_end." ";
+			$name_list = $name_list.",";
+			$symbol_list = $symbol_list.",";
+		} else {
+			$sql_start = "update ignore test_fund_manager_funds set start_date = case ";
+			$sql_end = "update ignore test_fund_manager_funds set end_date = case ";
+		}
+		if ( strlen($item["SERVICESTARTDATE"]) > 2 ){
+			$start_time = substr($item["SERVICESTARTDATE"], 0, 10);
+		} else {
+			$start_time = $item["SERVICESTARTDATE"];
+		}
+
+		if ($item["SERVICEENDDATE"] == null) {
+			$end_time = '至今';
+		} else if ( $item["SERVICEENDDATE"] > 10 ) {
+			$end_time = substr($item["SERVICEENDDATE"], 0, 10);
+		} else {
+			$end_time = $item["SERVICEENDDATE"];
+		}
+
+		$sql_start = $sql_start." WHEN master_fund_code = {$item["MASTERFUNDCODE"]} and  manager_name = '{$item["FULLNAME"]}' THEN '{$start_time}'";
+		$sql_end = $sql_end." WHEN master_fund_code = {$item["MASTERFUNDCODE"]} and  manager_name = '{$item["FULLNAME"]}' THEN '{$end_time}'";
+		$symbol_list = $symbol_list." '{$item["MASTERFUNDCODE"]}'";
+		$name_list = $name_list." '{$item["FULLNAME"]}'";
+
+		if ( ($insert_count % $margin) == ($margin - 1) ) {
+			echo "do sql\n";
+			$sql_start = $sql_start." END WHERE master_fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
+			$sql_end = $sql_end." END WHERE master_fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
+			$ret = DB::runSql($sql_start);
+			$ret = DB::runSql($sql_end);
+			var_dump($sql_start);
+			$sql_start = "";
+			$sql_end = "";
+			$name_list = "";
+			$symbol_list = "";
+			$insert_count = 0;
+		} else {
+			$insert_count ++;
+		}
+	}
+
+	// ------------------------------------------------------------------------------
+
+	/**
+	 * syn info from howbuy to Tian tian
+	 *
+	 */
 	function syn_fund_manager_funds_TT_from_How() {
 		//$sql = "select fund_code, manager_name, fund_size, maxlos, average, rank, payback from test_fund_manager_funds order by fund_code";
 		$sql = "select * from test_fund_manager_funds order by fund_code";
@@ -2937,7 +2820,10 @@ class mssql
 		}
 	}
 
+	// ----------------------------- fund_manager_funds end ----------------------------------- //
 
+
+	// ------------------------------ fund_manager start ------------------------------------ //
 	// construct manager id map between howmany and tian tian
 	function construct_manager_id_map () {
 		DB::runSql("TRUNCATE table test_fund_manager_id_map");
@@ -3058,8 +2944,10 @@ class mssql
 		}
 	}
 
-	/*
-	 * syn fund manager from howmanay
+	/**
+	 * syn fund manager from howbuy
+	 * the manager info grasped from howbuy
+	 * but the manager code is follow the tian tian ji jin
 	 */
 	function syn_fund_manager() {
 
@@ -3259,71 +3147,12 @@ class mssql
 		return true;
 	}
 
+	// ------------------------------ fund_manager end ------------------------------------ //
 
-	function getDateTime($date_s) {
-		$year_p = strpos($date_s, "年");
-		$mon_p = strpos($date_s, "月");
-		$day_p = strpos($date_s, "日");
-
-		$date = new DateTime();
-		if ($year_p == false || $mon_p == false || $day_p == false) {
-			$date->setDate(2000, 1, 1);
-			return $date->format('Y-m-d');
-		}
-		$year = (int) substr($date_s, 0, $year_p);
-		$month = (int) substr($date_s, $year_p + 1, $mon_p - $year_p - 1 );
-		$day = (int) substr($date_s, $mon_p+1, $day_p - $mon_p - 1);
-		$date->setDate($year, $month, $day);
-		return $date->format('Y-m-d');
-	}
-
-	function update_for_one_range() {
-		//$symbol = "000574";
-		//self::countRange($symbol);
-		//echo 'Current PHP version: ' . phpversion();
-		$sql = "update test_php_pdo set a = 1;update test_php_pdo set b = 2";
-		$ret = DB::runSql($sql);
-		var_dump($ret);
-
-	}
-
-	public function bonusfix_for_one_per()
-	{
-		$symbol = "000574";
-		$i = $j = 0;
-		$sql = "SELECT * FROM `fund_bonus` where code = '{$symbol}'";
-		var_dump($sql);
-		$data = DB::getData("SELECT * FROM `fund_bonus` where code = '{$symbol}'");
-		foreach ($data as $item) {
-			var_dump($item);
-			$id = $item['id'];
-			$bonus = $item['bonus'];
-			$oldPer = $item['per'];
-			if (preg_match_all('/.*?10.*?([\d\.]+)/', $bonus, $matches)) {
-				$tmp = $matches[1][0];
-				$per = round(($tmp / 10), 4);
-				if ($per == 0) {
-					exit("Zero Found {$per} {$id}");
-				}
-				if ($oldPer != $per) {
-					$i++;
-					DB::runSql("UPDATE `fund_bonus` SET `per`='{$per}' WHERE id={$id}");
-					self::log("{$id} FIXED {$oldPer}=>{$per}");
-				} else {
-					$j++;
-					self::log("{$id} IS ALREADY NEW");
-				}
-			} else {
-				exit("not Match {$id}");
-			}
-		}
-		$num = count($data);
-		self::log("FIXED {$i}, OK {$j} ,Total {$num}");
-	}
-
-
-	// construct table for fund range(涨跌幅)
-	/*
+	// ------------------ build the table for relative bonus and split --------------------//
+	// used for update fund_value change ratio
+	// it will update all the elements
+	/**
 	 * CREATE TABLE `test_fund_relative_split_and_divide` (
 	 * `id` int(11) NOT NULL AUTO_INCREMENT
 	 * `code` varchar(16) DEFAULT NULL,
@@ -3332,11 +3161,10 @@ class mssql
 	 * takes about 3 hours for construct_relative_bonus_split_per_fund 
 	 * for every fund
 	 */
-
 	function construct_relative_bonus_split() {
 		//DB::runSql("TRUNCATE table test_fund_manager_bonus_split");
-		//$this->construct__relative_bonus_split_skeleton();
-		$this->update_relative_bonus_split_skeleton();
+		$this->construct__relative_bonus_split_skeleton();
+		//$this->update_relative_bonus_split_skeleton();
 
 		$sql = "select DISTINCT(code) from test_fund_manager_bonus_split";
 		$code_list = DB::getData($sql);
@@ -3344,8 +3172,6 @@ class mssql
 			var_dump($code);
 			$this->construct_relative_bonus_split_per_fund($code["code"]);
 		}
-
-
 
 	}
 
@@ -3397,7 +3223,7 @@ class mssql
 
 	}
 
-	/*
+	/**
 	 * pre_bonus: already mulitied by current ratio
 	 */
 	function construct_relative_bonus($data, $code, $start_date, $end_date, &$pre_bonus, $ratio, &$sql = "", &$insert_count = 0, $margin = 1) {
@@ -3511,7 +3337,6 @@ class mssql
 		$pre_bonus = $bonus;
 	}
 
-
 	function construct__relative_bonus_split_skeleton() {
 		ini_set('memory_limit','512M');
 		$start_code = 0;
@@ -3536,7 +3361,6 @@ class mssql
 
 		}
 	}
-
 
 	function construct__relative_bonus_split_skeleton_partial($data) {
 		$sql = "";
@@ -3615,31 +3439,8 @@ class mssql
 
 	}
 
-	/*
-	 * takes about 12min
-	 */
-	function update_fund_manager_funds() {
-		// parse basic info from tian tian jijin
-		$this->syn_fund_manager_funds_from_TT();
 
-		// parse addition info from howbuy into another table
-		$this->syn_fund_manager_funds();
-
-		// combine both table
-		$this->syn_fund_manager_funds_TT_from_How();
-	}
-
-	/*
-	 * takes about 13min
-	 */
-	function update_fund_manager() {
-		$this->update_fund_manager_funds();
-		$this->construct_manager_id_map();
-		$this->syn_fund_manager();
-	}
-
-
-	/*
+	/**
 	 * update table test_relative_bonus_split
 	 * version2: speed up
 	 * assumption: less than 10days for not update, no two splits or bonus in 10 days\
@@ -3757,19 +3558,10 @@ class mssql
 		}
 	}
 
-	function run_sql(&$sql, &$insert_count, $margin) {
-		if ( ($insert_count % $margin) >= ($margin - 1) ) {
-			echo "do sql\n";
-			var_dump($sql);
-			$ret = DB::runSql($sql);
-			$sql = "";
-			$insert_count = 0;
-		} else {
-			$insert_count++;
-		}
-	}
+	// ----------------------------------- fund_split_bonus end --------------------------------------//
 
-function syn_fund_bond () {
+	// ----------------------------------- update fund_bond  -----------------------------------------//
+	function syn_fund_bond () {
 		$sql = "exec  [dbo].constructMysqlFundBond";
 		$ret = self::runRootSql($sql);
 		$sql = "TRUNCATE TABLE fund_bond";
@@ -3789,97 +3581,13 @@ function syn_fund_bond () {
 
 	}
 
-	/*
-	 * $mysql_id, order
+	// ----------------------------------- update fund_bond end --------------------------------------//
+
+	// ----------------------------------- update fund_rate ------------------------------------------//
+	/**
+	 * update fund rating for each fund from tian tian ji jin
 	 */
-	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id = null, $mssql_id = null) {
-		// check variable
-		if ( !is_array($mysql_fields) || !is_array($mssql_fields) ) {
-			echo "input fields is not array";
-			return false;
-		}
-
-		if ( count($mssql_fields) != count($mysql_fields) ) {
-			echo "input fields is not equal";
-			return false;
-		}
-
-		// partial
-		$sql = "";
-		if ($mysql_id !== null) {
-			// get total size
-			$sz = $this->get_ms_row_count($mssql_tbname);
-			$start_pos = 0;
-			$margin = 500;
-			$end_pos = $start_pos + $margin;
-			echo "start pos: ";
-			var_dump($start_pos);
-			while ($start_pos < $sz) {
-				$sql = "SELECT * from (SELECT *, ROW_NUMBER() OVER (ORDER BY $mysql_id) as row FROM [dbo].[{$mssql_tbname}]) a WHERE a.row >= {$start_pos} and a.row <= {$end_pos}";
-				$source_data = $this->getData($sql);
-				//var_dump($source_data);
-				$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields);
-				$start_pos = $end_pos + 1;
-				$end_pos = $start_pos + $margin;
-			}
-
-			foreach ($mssql_fields as $filed) {
-				$sql = $sql." `{$filed}`";
-			}
-		} else {
-			$sql = "SELECT ";
-			foreach ($mssql_fields as $filed) {
-				$sql = $sql." `{$filed}`";
-			}
-			$sql = $sql." from [dbo].[{$mssql_tbname}]";
-			$source_data = $this->getData($sql);
-			$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields);
-		}
-
-	}
-
-	function syn_data($source_data, $source_fields, $target_tbname, $target_fields) {
-
-		$margin = 50;
-		$sz = count($source_data);
-		$count = $sz / $margin;
-		if ( $sz % $margin != 0 ) {
-			$count ++;
-		}
-		$slicde_data = array_chunk ($source_data, $count);
-		foreach ($slicde_data as $data_array) {
-			echo "data_array:\n";
-			//var_dump($data_array);
-			$sql = "INSERT INTO {$target_tbname} (";
-			foreach ($target_fields as $fileds) {
-				$sql = $sql." `{$fileds}`,";
-			}
-			$tmp_sz = strlen($sql);
-			$sql = substr($sql, 0, $tmp_sz-1);
-			$sql = $sql.") VALUES";
-			foreach ($data_array as $item) {
-				var_dump($item["fund_code"]);
-				$sql = $sql." (";
-				foreach($source_fields as $fields) {
-					if (!array_key_exists($fields, $item)) {
-						$item[$fields] = "";
-					}
-					$sql = $sql."'{$item[$fields]}', ";
-				}
-				// delete last ","
-				$tmp_sz = strlen($sql);
-				$sql = substr($sql, 0, $tmp_sz-2);
-				$sql = $sql."),";
-			}
-			// delete last ","
-			$tmp_sz = strlen($sql);
-			$sql = substr($sql, 0, $tmp_sz-1);
-			DB::runSql($sql);
-		}
-
-	}
-
-function syn_fund_rating_data() {
+	function syn_fund_rating_data() {
 		$target_url_list = [];
 		$this->generate_fund_rating_url($target_url_list);
 		var_dump($target_url_list);
@@ -3980,6 +3688,349 @@ function syn_fund_rating_data() {
 			$insert_count ++;
 		}
 	}
+
+	// ----------------------------------- update fund_rate end --------------------------------------//
+
+
+	/*
+ * takes about 12min
+ */
+	function update_fund_manager_funds() {
+		// parse basic info from tian tian jijin
+		$this->syn_fund_manager_funds_from_TT();
+
+		// parse addition info from howbuy into another table
+		$this->syn_fund_manager_funds();
+
+		// combine both table
+		$this->syn_fund_manager_funds_TT_from_How();
+	}
+
+	/*
+	 * takes about 13min
+	 */
+	function update_fund_manager() {
+		$this->update_fund_manager_funds();
+		$this->construct_manager_id_map();
+		$this->syn_fund_manager();
+	}
+	// ------------------------------------ not used -----------------------------------//
+	/**
+	 * update the fund_size field in table--fund_manager_funds
+	 *
+	 * row nums is about 5k, can be store in memory
+	 */
+	function syn_fund_manager_funds_fund_size() {
+		$sql="exec [dbo].graspFundInfo";
+		$ret = self::runRootSql($sql);
+		self::log("ret: {$ret}");
+		if ($ret >= 0) {
+			// get  $source_data
+			$sql = 'select SYMBOL, TOTALTNA from [dbo].[table_test_res] ORDER BY SYMBOL';
+			$source_data = self::getData($sql);
+			$source_size = count($source_data);
+
+			// get  $get target code ids
+			$sql = 'SELECT fund_code from test_fund_manager_funds ORDER BY fund_code';
+			$target_id_aray = DB::getData($sql);
+			$target_size = count($target_id_aray);
+
+			// check for match, then update
+			$source_pos = 0;
+			$target_pos = 0;
+			$insert_count = 0;
+			$sql = "";
+			$id_list = "";
+			$margin = 50;
+			$source_miss = 0;
+			$target_miss = 0;
+			$pre_source_id = -1;
+			$pre_target_id = -1;
+			for (; $source_pos < $source_size; ) {
+				for (; $target_pos < $target_size; ) {
+					$source_id = $source_data[$source_pos]["SYMBOL"];
+					$target_id = $target_id_aray[$target_pos]["fund_code"];
+
+					if ($target_id == $source_id) {
+						// do it
+						self::execute_syn_fund_manager_funds_fund_size(
+							$sql, $id_list, $source_data[$source_pos], $insert_count, $margin
+						);
+						//echo "{$source_id}, {$source_data[$source_pos]["TOTALTNA"]}, {$target_id_aray[$target_pos]["fund_code"]}\n";
+						$pre_source_id = $source_id;
+						$source_pos ++;
+						$pre_target_id = $target_id;
+						$target_pos ++;
+						break;
+					} else if ($source_id < $target_id) {
+						// source miss
+						if ($pre_source_id != $source_id) {
+							$target_miss ++;
+						}
+
+						$pre_source_id = $source_id;
+						$source_pos ++;
+						break;
+					} else {
+						// target miss
+						if ($pre_target_id != $target_id) {
+							$source_miss ++;
+						}
+						$pre_target_id = $target_id;
+						$target_pos ++;
+					}
+
+					if ($target_pos >= $target_size) {
+						break;
+					}
+				}
+			}
+
+			// do remain
+			if ($insert_count > 0) {
+				echo "do sql:\n";
+				$sql = $sql." END WHERE fund_code in ({$id_list}) ";
+				$ret=DB::runSql($sql);
+			}
+
+			echo "source missing : ";
+			echo "{$source_miss} \n";
+			echo "target missing: ";
+			echo "{$target_miss} \n";
+		}
+	}
+
+	function execute_syn_fund_manager_funds_fund_size(&$sql, &$id_list, $item, &$insert_count, $margin) {
+		if (empty($item["TOTALTNA"])) {
+			return;
+		}
+
+		if ($insert_count != 0) {
+			$sql = $sql." ";
+			$id_list = $id_list.",";
+		} else {
+			$sql = "update test_fund_manager_funds set fund_size = case ";
+		}
+
+		$sql = $sql."WHEN fund_code = {$item["SYMBOL"]} THEN {$item["TOTALTNA"]}";
+		$id_list = $id_list." {$item["SYMBOL"]}";
+
+		if ( ($insert_count % $margin) == ($margin - 1) ) {
+			echo "do sql\n";
+			$sql = $sql." END WHERE fund_code in ({$id_list}) ";
+			$ret = DB::runSql($sql);
+			$sql = "";
+			$id_list = "";
+			$insert_count = 0;
+		} else {
+			$insert_count ++;
+		}
+	}
+
+
+	function syn_fund_manager_funds_manager_code() {
+		$sql = "select manager_code, fund_code, name from wangyu_test order by fund_code";
+		$source_data = DB::getData($sql);
+		$source_size = count($source_data);
+
+
+		$sql = "select fund_code, manager_name from test_fund_manager_funds order by fund_code";
+		$target_data = DB::getData($sql);
+		$target_size = count($target_data);
+
+		// check for match, then update
+		$source_pos = 0;
+		$target_pos = 0;
+		$insert_count = 0;
+		$sql = "";
+		$margin = 50;
+		$source_miss = 0;
+		$target_miss = 0;
+		$source_start = 0;
+		$source_end = -1;
+		$target_start = 0;
+		$target_end = -1;
+		$sql = "";
+		$symbol_list = "";
+		$name_list = "";
+		for (; $source_start < $source_size; ) {
+			$this->get_start_and_end_pos($source_data, "fund_code", $source_size, $source_start, $source_end);
+			for (; $target_start < $target_size; ) {
+				$this->get_start_and_end_pos($target_data, "fund_code", $target_size, $target_start, $target_end);
+				$source_id = $source_data[$source_start]["fund_code"];
+				$target_id = $target_data[$target_start]["fund_code"];
+
+				if ($target_id == $source_id) {
+					// do it
+					$this->syn_fund_manager_funds_manager_code_per_fund($sql, $symbol_list, $name_list, $insert_count, $source_data, $source_start, $source_end, $target_data, $target_start, $target_end, $margin);
+
+					echo "{$source_id}, {$source_data[$source_pos]["name"]}, {$target_data[$target_pos]["fund_code"]}\n";
+					$source_start = $source_end + 1;
+					$target_start = $target_end + 1;
+					break;
+				} else if ($source_id < $target_id) {
+					// target miss
+					$target_miss ++;
+					$this->get_start_and_end_pos($source_data, "fund_code", $source_size, $source_start, $source_end);
+
+					$source_start = $source_end + 1;
+					break;
+				} else {
+					// source miss
+					$source_miss ++;
+					$this->get_start_and_end_pos($target_data, "fund_code", $target_size, $target_start, $target_end);
+					$target_start = $target_end + 1;
+				}
+			}
+			if ($target_start >= $target_size) {
+				break;
+			}
+		}
+
+		// do remain
+		if ($insert_count > 0) {
+			echo "do sql\n";
+			$sql = $sql." END WHERE fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
+			$ret = DB::runSql($sql);
+			$sql = "";
+			$insert_count = 0;
+		}
+
+		echo "source missing : ";
+		echo "{$source_miss} \n";
+		echo "target missing: ";
+		echo "{$target_miss} \n";
+
+	}
+
+	function syn_fund_manager_funds_manager_code_per_fund(&$sql, &$symbol_list, &$name_list, &$insert_count, $source_data, $source_start, $source_end, $target_data, $target_start, $target_end, $margin) {
+		$source_pos = $source_start;
+		$target_pos = $target_start;
+		for (; $source_pos < $source_end + 1; $source_pos ++) {
+			for ($target_pos = $target_start; $target_pos < $target_end + 1; $target_pos ++) {
+				$source_id = $source_data[$source_pos]["name"];
+				$target_id = $target_data[$target_pos]["manager_name"];
+
+				if ($target_id == $source_id) {
+					// do it
+					$this->syn_fund_manager_funds_manager_code_per_item($sql, $symbol_list, $name_list, $insert_count, $source_data[$source_pos], $margin);
+
+					echo "{$source_id}, {$source_data[$source_pos]["manager_code"]}, {$target_data[$target_pos]["manager_name"]}\n";
+					break;
+				}
+			}
+		}
+	}
+
+	function syn_fund_manager_funds_manager_code_per_item(&$sql, &$symbol_list, &$name_list, &$insert_count, $item, $margin) {
+		if ($insert_count != 0) {
+			$sql = $sql." ";
+			$name_list = $name_list.",";
+			$symbol_list = $symbol_list.",";
+		} else {
+			$sql = "update test_fund_manager_funds set manager_code = case ";
+		}
+
+		$sql = $sql." WHEN fund_code = '{$item["fund_code"]}' and  manager_name = '{$item["name"]}' THEN '{$item["manager_code"]}'";
+		$symbol_list = $symbol_list." '{$item["fund_code"]}'";
+		$name_list = $name_list." '{$item["name"]}'";
+
+		if ( ($insert_count % $margin) == ($margin - 1) ) {
+			echo "do sql\n";
+			$sql = $sql." END WHERE fund_code in ({$symbol_list}) and manager_name in ({$name_list})";
+			$ret = DB::runSql($sql);
+			$sql = "";
+			$name_list = "";
+			$symbol_list = "";
+			$insert_count = 0;
+		} else {
+			$insert_count ++;
+		}
+	}
+
+
+	function wangyu_test_2() {
+		$sql="exec [dbo].graspFundInfo";
+		$ret = self::runRootSql($sql);
+		$sql = 'select * from [dbo].[table_test_res] ORDER BY SYMBOL';
+		$data = self::getData($sql);
+		var_dump($data[0]["CUSTODIANFEE"]);
+		$convert_string = ($data[0]["CUSTODIANFEE"]);
+		var_dump($convert_string);
+		$convert_int = (float) ($convert_string);
+		var_dump($convert_int);
+
+		$convert_string = "0".$convert_string;
+		var_dump($convert_string);
+		$convert_int = (float) ($convert_string);
+		var_dump($convert_int);
+	}
+
+	function wangyu_test() {
+		/*
+		$sql = "select count(*) from test_fund_stock";
+    echo "  blank: ";
+		$ret = DB::getData($sql);
+		var_dump($ret);
+		var_dump($ret);
+		$sql = "select `column_name` from `information_schema`.`columns` where `table_name`='test_fund_stock'";
+		$ret = DB::getData($sql);
+		var_dump($ret);
+		*/
+		$source_table = "fund_info";
+		$target_table = "test_fund_info";
+		$order_id = "code";
+		$is_value = false;
+		$exclude_array=["id", "status_desc", "fund_type", "invest_gain", "update_date", "name", "fullname", "start_date", "exchange_status", "company", "manager"];
+		$this->compareTable($source_table, $target_table, $order_id, $is_value, $exclude_array);
+
+
+	}
+
+	function update_for_one_range() {
+		//$symbol = "000574";
+		//self::countRange($symbol);
+		//echo 'Current PHP version: ' . phpversion();
+		$sql = "update test_php_pdo set a = 1;update test_php_pdo set b = 2";
+		$ret = DB::runSql($sql);
+		var_dump($ret);
+
+	}
+
+	public function bonusfix_for_one_per()
+	{
+		$symbol = "000574";
+		$i = $j = 0;
+		$sql = "SELECT * FROM `fund_bonus` where code = '{$symbol}'";
+		var_dump($sql);
+		$data = DB::getData("SELECT * FROM `fund_bonus` where code = '{$symbol}'");
+		foreach ($data as $item) {
+			var_dump($item);
+			$id = $item['id'];
+			$bonus = $item['bonus'];
+			$oldPer = $item['per'];
+			if (preg_match_all('/.*?10.*?([\d\.]+)/', $bonus, $matches)) {
+				$tmp = $matches[1][0];
+				$per = round(($tmp / 10), 4);
+				if ($per == 0) {
+					exit("Zero Found {$per} {$id}");
+				}
+				if ($oldPer != $per) {
+					$i++;
+					DB::runSql("UPDATE `fund_bonus` SET `per`='{$per}' WHERE id={$id}");
+					self::log("{$id} FIXED {$oldPer}=>{$per}");
+				} else {
+					$j++;
+					self::log("{$id} IS ALREADY NEW");
+				}
+			} else {
+				exit("not Match {$id}");
+			}
+		}
+		$num = count($data);
+		self::log("FIXED {$i}, OK {$j} ,Total {$num}");
+	}
+
 
 // wangyu change end
 }
