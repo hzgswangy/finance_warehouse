@@ -254,7 +254,7 @@ class mssql
 	/*
  * $mysql_id, order
  */
-	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id = null, $mssql_id = null) {
+	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array = [], $mssql_id = null, $addtion_where = null) {
 		// check variable
 		if ( !is_array($mysql_fields) || !is_array($mssql_fields) ) {
 			echo "input fields is not array";
@@ -266,21 +266,24 @@ class mssql
 			return false;
 		}
 
-		// partial
+		// load partial every time
 		$sql = "";
-		if ($mysql_id !== null) {
+		if ($mssql_id !== null) {
 			// get total size
 			$sz = $this->get_ms_row_count($mssql_tbname);
 			$start_pos = 0;
-			$margin = 500;
+			$margin = 100;
 			$end_pos = $start_pos + $margin;
 			echo "start pos: ";
 			var_dump($start_pos);
 			while ($start_pos < $sz) {
-				$sql = "SELECT * from (SELECT *, ROW_NUMBER() OVER (ORDER BY $mysql_id) as row FROM [dbo].[{$mssql_tbname}]) a WHERE a.row >= {$start_pos} and a.row <= {$end_pos}";
+				$sql = "SELECT * from (SELECT *, ROW_NUMBER() OVER (ORDER BY $mssql_id) as row FROM [dbo].[{$mssql_tbname}]) a WHERE a.row >= {$start_pos} and a.row <= {$end_pos}";
+				if ($addtion_where != null) {
+					$sql = $sql." and {$addtion_where}";
+				}
 				$source_data = $this->getData($sql);
 				//var_dump($source_data);
-				$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields);
+				$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields, $mysql_id_array);
 				$start_pos = $end_pos + 1;
 				$end_pos = $start_pos + $margin;
 			}
@@ -294,13 +297,16 @@ class mssql
 				$sql = $sql." `{$filed}`";
 			}
 			$sql = $sql." from [dbo].[{$mssql_tbname}]";
+			if ($addtion_where != null) {
+				$sql = $sql." where {$addtion_where}";
+			}
 			$source_data = $this->getData($sql);
-			$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields);
+			$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields, $mysql_id_array);
 		}
 
 	}
 
-	function syn_data($source_data, $source_fields, $target_tbname, $target_fields) {
+	function syn_data($source_data, $source_fields, $target_tbname, $target_fields, $target_key_array = []) {
 
 		$margin = 50;
 		$sz = count($source_data);
@@ -332,6 +338,17 @@ class mssql
 				$tmp_sz = strlen($sql);
 				$sql = substr($sql, 0, $tmp_sz-2);
 				$sql = $sql."),";
+			}
+			// delete last ","
+			$tmp_sz = strlen($sql);
+			$sql = substr($sql, 0, $tmp_sz-1);
+			// add duplicate
+			$sql = $sql." ON DUPLICATE KEY UPDATE ";
+			foreach ($target_fields as $fileds) {
+				if (in_array($fields, $target_key_array)) {
+					continue;
+				}
+				$sql = $sql." {$fileds}=VALUES({$fileds}),";
 			}
 			// delete last ","
 			$tmp_sz = strlen($sql);
@@ -3691,6 +3708,38 @@ class mssql
 
 	// ----------------------------------- update fund_rate end --------------------------------------//
 
+	// ----------------------------------- update fund stock and bond total percent ------------------//
+	function update_fund_stock_bond_total_percent() {
+		$sql="exec [dbo].graspFundStockBondPercentInfo";
+		$ret = self::runRootSql($sql);
+		if ($ret ===false) {
+			return;
+		}
+
+		// stock
+		$mysql_tbname = "fund_stock_bond_percent";
+		$mysql_fields = ["fund_code", "stock_percent", "start_date", "end_date"];
+		$mssql_tbname = "table_stock_percent";
+		$mssql_fields = ["SYMBOL", "FAIRVALUETONAV", "STARTDATE", "EDNDATE"];
+		$mysql_id_array = ["SYMBOL", "STARTDATE", "EDNDATE"];
+		$mssql_id = "SYMBOL";
+		$addtion_where = null;
+		syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
+
+		// bond
+		$mysql_tbname = "fund_stock_bond_percent";
+		$mysql_fields = ["fund_code", "bond_percent", "start_date", "end_date"];
+		$mssql_tbname = "table_bond_percent";
+		$mssql_fields = ["SYMBOL", "FAIRVALUETONAV", "STARTDATE", "EDNDATE"];
+		$mysql_id_array = ["SYMBOL", "STARTDATE", "EDNDATE"];
+		$mssql_id = "SYMBOL";
+		$addtion_where = null;
+		syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
+	}
+
+
+	// ----------------------------------- update fund stock and bond total percent end ---------------//
+
 
 	/*
  * takes about 12min
@@ -3714,6 +3763,7 @@ class mssql
 		$this->construct_manager_id_map();
 		$this->syn_fund_manager();
 	}
+
 	// ------------------------------------ not used -----------------------------------//
 	/**
 	 * update the fund_size field in table--fund_manager_funds
