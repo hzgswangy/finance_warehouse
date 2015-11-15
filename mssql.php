@@ -542,7 +542,7 @@ class mssql
 	{
 		// self::log('Work will start at '.date('Y-m-d H:i',time()+3600*12))||sleep(3600*12);
 		$this->sync($goto);
-		update_relative_bonus_split();
+		$this->update_relative_bonus_split();
 	}
 
 	/**
@@ -3734,6 +3734,18 @@ class mssql
 		$mssql_id = "SYMBOL";
 		$addtion_where = null;
 		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
+		
+
+		// total asset
+		$mysql_tbname = "fund_stock_bond_percent";
+		$mysql_fields = ["fund_code", "total_asset_percent", "start_date", "end_date"];
+		$mssql_tbname = "table_total_asset_percent";
+		$mssql_fields = ["SYMBOL", "TotalAsset", "STARTDATE", "ENDDATE"];
+		$mysql_id_array = ["fund_code", "start_date", "end_date"];
+		$mssql_id = "SYMBOL"; 
+		$addtion_where = null;
+		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
+		
 	}
 
 
