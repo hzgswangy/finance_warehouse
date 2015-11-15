@@ -3735,6 +3735,7 @@ class mssql
 		$addtion_where = null;
 		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
 		
+
 		// total asset
 		$mysql_tbname = "fund_stock_bond_percent";
 		$mysql_fields = ["fund_code", "total_asset_percent", "start_date", "end_date"];
