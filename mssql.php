@@ -254,7 +254,7 @@ class mssql
 	/*
  * $mysql_id, order
  */
-	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array = [], $mssql_id = null, $addtion_where = null) {
+	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array = [], $mssql_id = null, $addtion_where = null, $pre_msdata_proc_function) {
 		// check variable
 		if ( !is_array($mysql_fields) || !is_array($mssql_fields) ) {
 			echo "input fields is not array";
@@ -283,6 +283,9 @@ class mssql
 				}
 				$source_data = $this->getData($sql);
 				//var_dump($source_data);
+				if ($pre_msdata_proc_function != null) {
+					$pre_msdata_proc_function($source_data);
+				}
 				$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields, $mysql_id_array);
 				$start_pos = $end_pos + 1;
 				$end_pos = $start_pos + $margin;
@@ -303,7 +306,6 @@ class mssql
 			$source_data = $this->getData($sql);
 			$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields, $mysql_id_array);
 		}
-
 	}
 
 	function syn_data($source_data, $source_fields, $target_tbname, $target_fields, $target_key_array = []) {
@@ -1329,6 +1331,49 @@ class mssql
 	 * source table:  Fund_Maininfo, Fund_UnitClassInfo, Fund_FundManager,Fund_Prospectuses,
 	 *                Fund_ShareChange, Fund_FIN_INDEX
 	 */
+	function syn_myswl_fund_info() {
+		$sql="exec [dbo].graspFundInfo";
+		$ret = self::runRootSql($sql);
+		self::log("ret: {$ret}");
+
+		$mysql_tbname = "[dbo].[table_test_res]";
+		$mysql_fields = ["fund_code", "stock_percent", "start_date", "end_date"];
+		$mssql_tbname = "table_stock_percent";
+		$mssql_fields = ["SHORTNAME", "FULLNAME", "SYMBOL", "CATEGORY", "INCEPTIONDATE", "FUNDSTATUS", "trade status", "FUNDCOMPANYNAME", "ManagerName", "MANAGEMENTFEE", "CUSTODIANFEE", "INCEPTIONTNA", "EndDateShares", "CUSTODIAN", "TotalTNA", "INVESTMENTGOAL", "INVESTMENTSCOPE", "STRATEGY", "invest return", "RISKDESCRIPTION"];
+		$mysql_id_array = ["name", "fullname", "code", "fund_type", "start_date", "status_desc", "exchange_status", "company", "manager", "rate_manage", "rate_hold", "scale_first", "mount_new", "bank", "scale_new", "invest_goal", "invest_range", "invest_plan", "invest_gain", "invest_risk"];
+		$mssql_id = "SYMBOL";
+		$addtion_where = null;
+		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where, 'pre_process_info');
+	}
+
+	function pre_process_info(&$data) {
+		foreach ($data as $index => $item) {
+
+			if ($item['MANAGEMENTFEE'] != null) {
+				$item['MANAGEMENTFEE'] = (float) $item['MANAGEMENTFEE'];
+			} else {
+				$item['MANAGEMENTFEE'] = 1;
+			}
+			if ($item['CUSTODIANFEE'] != null) {
+				$item['CUSTODIANFEE'] = (float) $item['CUSTODIANFEE'];
+			} else {
+				$item['CUSTODIANFEE'] = -1;
+			}
+			if ($item['INCEPTIONTNA'] == null) {
+				$item['INCEPTIONTNA']  = -1;
+			}
+			if ($item['EndDateShares'] == null) {
+				$item['EndDateShares'] = -1;
+			}
+			if ($item['TotalTNA'] == null) {
+				$item['TotalTNA']  = $item['TotalTNA'];
+			}
+			$item['trade status'] = "trade status";
+		}
+	}
+
+
+
 	function syn_mysql_fund_info() {
 		$sql="exec [dbo].graspFundInfo";
 		$ret = self::runRootSql($sql);
@@ -3166,6 +3211,7 @@ class mssql
 	// ------------------------------ fund_manager end ------------------------------------ //
 
 	// ------------------ build the table for relative bonus and split --------------------//
+	// 涉及到逻辑计算，暂时不适合模块化优化
 	// used for update fund_value change ratio
 	// it will update all the elements
 	/**
