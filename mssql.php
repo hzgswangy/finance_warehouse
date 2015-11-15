@@ -307,7 +307,7 @@ class mssql
 	}
 
 	function syn_data($source_data, $source_fields, $target_tbname, $target_fields, $target_key_array = []) {
-
+		echo "do syn_data\n";
 		$margin = 50;
 		$sz = count($source_data);
 		$count = $sz / $margin;
@@ -316,7 +316,6 @@ class mssql
 		}
 		$slicde_data = array_chunk ($source_data, $count);
 		foreach ($slicde_data as $data_array) {
-			echo "data_array:\n";
 			//var_dump($data_array);
 			$sql = "INSERT INTO {$target_tbname} (";
 			foreach ($target_fields as $fileds) {
@@ -326,7 +325,7 @@ class mssql
 			$sql = substr($sql, 0, $tmp_sz-1);
 			$sql = $sql.") VALUES";
 			foreach ($data_array as $item) {
-				var_dump($item["fund_code"]);
+				//var_dump($item["fund_code"]);
 				$sql = $sql." (";
 				foreach($source_fields as $fields) {
 					if (!array_key_exists($fields, $item)) {
@@ -344,11 +343,11 @@ class mssql
 			$sql = substr($sql, 0, $tmp_sz-1);
 			// add duplicate
 			$sql = $sql." ON DUPLICATE KEY UPDATE ";
-			foreach ($target_fields as $fileds) {
+			foreach ($target_fields as $fields) {
 				if (in_array($fields, $target_key_array)) {
 					continue;
 				}
-				$sql = $sql." {$fileds}=VALUES({$fileds}),";
+				$sql = $sql." {$fields}=VALUES({$fields}),";
 			}
 			// delete last ","
 			$tmp_sz = strlen($sql);
@@ -543,7 +542,7 @@ class mssql
 	{
 		// self::log('Work will start at '.date('Y-m-d H:i',time()+3600*12))||sleep(3600*12);
 		$this->sync($goto);
-		update_relative_bonus_split();
+		$this->update_relative_bonus_split();
 	}
 
 	/**
@@ -3720,21 +3719,32 @@ class mssql
 		$mysql_tbname = "fund_stock_bond_percent";
 		$mysql_fields = ["fund_code", "stock_percent", "start_date", "end_date"];
 		$mssql_tbname = "table_stock_percent";
-		$mssql_fields = ["SYMBOL", "FAIRVALUETONAV", "STARTDATE", "EDNDATE"];
-		$mysql_id_array = ["SYMBOL", "STARTDATE", "EDNDATE"];
+		$mssql_fields = ["SYMBOL", "FAIRVALUETONAV", "STARTDATE", "ENDDATE"];
+		$mysql_id_array = ["fund_code", "start_date", "end_date"];
 		$mssql_id = "SYMBOL";
 		$addtion_where = null;
-		syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
+		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
 
 		// bond
 		$mysql_tbname = "fund_stock_bond_percent";
 		$mysql_fields = ["fund_code", "bond_percent", "start_date", "end_date"];
 		$mssql_tbname = "table_bond_percent";
-		$mssql_fields = ["SYMBOL", "FAIRVALUETONAV", "STARTDATE", "EDNDATE"];
-		$mysql_id_array = ["SYMBOL", "STARTDATE", "EDNDATE"];
+		$mssql_fields = ["SYMBOL", "FAIRVALUETONAV", "STARTDATE", "ENDDATE"];
+		$mysql_id_array = ["fund_code", "start_date", "end_date"];
 		$mssql_id = "SYMBOL";
 		$addtion_where = null;
-		syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
+		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
+		
+		// total asset
+		$mysql_tbname = "fund_stock_bond_percent";
+		$mysql_fields = ["fund_code", "total_asset_percent", "start_date", "end_date"];
+		$mssql_tbname = "table_total_asset_percent";
+		$mssql_fields = ["SYMBOL", "TotalAsset", "STARTDATE", "ENDDATE"];
+		$mysql_id_array = ["fund_code", "start_date", "end_date"];
+		$mssql_id = "SYMBOL"; 
+		$addtion_where = null;
+		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where);
+		
 	}
 
 
