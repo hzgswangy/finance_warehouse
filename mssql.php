@@ -284,7 +284,8 @@ class mssql
 				$source_data = $this->getData($sql);
 				//var_dump($source_data);
 				if ($pre_msdata_proc_function != null) {
-					$pre_msdata_proc_function($source_data);
+					//$pre_msdata_proc_function($source_data);
+					$source_data = call_user_func($pre_msdata_proc_function, $source_data);
 				}
 				$this->syn_data($source_data, $mssql_fields, $mysql_tbname, $mysql_fields, $mysql_id_array);
 				$start_pos = $end_pos + 1;
@@ -1339,15 +1340,15 @@ class mssql
 
 		$mysql_tbname = "test_fund_info";
 		$mysql_fields = ["name", "fullname", "code", "fund_type", "start_date", "status_desc", "exchange_status", "company", "manager", "rate_manage", "rate_hold", "scale_first", "mount_new", "bank", "scale_new", "invest_goal", "invest_range", "invest_plan", "invest_gain", "invest_risk"];
-		$mssql_tbname = "[dbo].[table_test_res]";
+		$mssql_tbname = "table_test_res";
 		$mssql_fields = ["SHORTNAME", "FULLNAME", "SYMBOL", "CATEGORY", "INCEPTIONDATE", "FUNDSTATUS", "trade status", "FUNDCOMPANYNAME", "ManagerName", "MANAGEMENTFEE", "CUSTODIANFEE", "INCEPTIONTNA", "EndDateShares", "CUSTODIAN", "TotalTNA", "INVESTMENTGOAL", "INVESTMENTSCOPE", "STRATEGY", "invest return", "RISKDESCRIPTION"];
 		$mysql_id_array = ["name", "fullname", "code", "fund_type"];
 		$mssql_id = "SYMBOL";
 		$addtion_where = null;
-		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where, 'pre_process_info');
+		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where, 'self::pre_process_info');
 	}
 
-	function pre_process_info(&$data) {
+	function pre_process_info($data) {
 		foreach ($data as $index => $item) {
 
 			if ($item['MANAGEMENTFEE'] != null) {
@@ -1371,6 +1372,7 @@ class mssql
 			}
 			$item['trade status'] = "trade status";
 		}
+		return $data;
 	}
 
 
