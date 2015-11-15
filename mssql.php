@@ -1331,7 +1331,7 @@ class mssql
 	 * source table:  Fund_Maininfo, Fund_UnitClassInfo, Fund_FundManager,Fund_Prospectuses,
 	 *                Fund_ShareChange, Fund_FIN_INDEX
 	 */
-	function syn_myswl_fund_info() {
+	function syn_mysql_fund_info() {
 		$sql="exec [dbo].graspFundInfo";
 		$ret = self::runRootSql($sql);
 		self::log("ret: {$ret}");
@@ -1373,7 +1373,7 @@ class mssql
 	}
 
 
-
+/*
 	function syn_mysql_fund_info() {
 		$sql="exec [dbo].graspFundInfo";
 		$ret = self::runRootSql($sql);
@@ -1440,6 +1440,7 @@ class mssql
         'invest return',
         '{$item['RISKDESCRIPTION']}'";
 				*/
+				/*
 
 				$sql = $sql . ")";
 
@@ -1459,7 +1460,7 @@ class mssql
 		}
 
 	}
-
+*/
 	/**
 	 * syn table fund_stock in mysql
 	 * source DB: mssql
