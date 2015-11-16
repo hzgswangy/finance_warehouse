@@ -254,7 +254,7 @@ class mssql
 	/*
  * $mysql_id, order
  */
-	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array = [], $mssql_id = null, $addtion_where = null, $pre_msdata_proc_function) {
+	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array = [], $mssql_id = null, $addtion_where = null, $pre_msdata_proc_function = None) {
 		// check variable
 		if ( !is_array($mysql_fields) || !is_array($mssql_fields) ) {
 			echo "input fields is not array";
@@ -1326,6 +1326,30 @@ class mssql
 	}
 
 // wangyu change start
+	/**
+	 * syn hushen300 into stock/test_sotck
+	 * 由于数据库较小，直接全部拷贝
+	 */
+	function syn_hushen300() {
+		$mysql_tbname = "test_stock";
+		$mysql_fields = ["date", "open", "close", "high", "low", "deal", "volumn"];
+
+		$mssql_tbname = "IDX_MKT_QUOTATION";
+		$mssql_fields = ["TRADINGDATE", "OPENPRICE", "CLOSEPRICE", "HIGHPRICE", "LOWPRICE", "AMOUNT", "VOLUME"];
+
+		$mysql_id_array = [];
+		$mssql_id = "SYMBOL";
+		$addtion_where = "SYMBOL = '000300'";
+		$pre_msdata_proc_function = 'pre_proc_hushen300';
+
+		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where, $pre_msdata_proc_function);
+	}
+
+	function pre_proc_hushen300($data) {
+
+	}
+
+
 	/**
 	 * syn table fund_info in mysql
 	 * source DB: mssql
