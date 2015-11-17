@@ -180,6 +180,19 @@ class mssql
 		return $res;
 	}
 
+	function get_patten_string_right_pos($data, $head, $end, $start_pos, &$end_pos) {
+
+		$ret = get_pattern_pos($data, $head, $end, $start_pos);
+		if ($ret === false) {
+			return false;
+		}
+		$end_pos = $ret;
+		$p1 = $start_pos; $p2 = $end_pos;
+		$res = substr($data, $p1, $p2 - $p1);
+		$end_pos = $p2;
+		return $res;
+	}
+
 	/*
 	 * get the string for the matched $head->$start(eg. xml)
 	 * NOTICE: the start pos is right the pos of the start pattern
@@ -1376,6 +1389,8 @@ class mssql
 		$mssql_id = "SYMBOL";
 		$addtion_where = null;
 		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where, 'self::pre_process_info');
+
+		$this->syn_fund_info_from_net();
 	}
 
 	function pre_process_info($data) {
@@ -1403,6 +1418,121 @@ class mssql
 			$item['trade status'] = "trade status";
 		}
 		return $data;
+	}
+
+	function syn_fund_info_from_net() {
+		// contruct url
+		$url_list = $this->contruct_fund_info_urls();
+
+		$insert_count = 0;
+		$sql = "";
+		$margin = 50;
+		foreach ($url_list as $url) {
+			$this->execute_syn_fund_info($url[1], $url[0], $insert_count, $sql, $margin);
+		}
+		if ($insert_count > 0) {
+			echo "do sql:\n";
+			$sql = $sql." ON DUPLICATE KEY UPDATE exchange_status=VALUES(exchange_status)";
+			var_dump($sql);
+			$ret=DB::runSql($sql);
+		}
+	}
+
+	function contruct_fund_info_urls() {
+		// get symbol array
+		$sql = "select code from test_fund_info";
+		$data = DB::getData($sql);
+		$prefix = "http://www.howbuy.com//fund//ajax//gmfund//fundsummary.htm?jjdm=";
+		$url_list = [];
+		foreach ($data as $item) {
+			$tmp_list = [];
+			$tmp_s = $prefix;
+			$tmp_s = $tmp_s.$item["code"];
+			array_push($tmp_list, $item["code"]);
+			array_push($tmp_list, $tmp_s);
+		}
+		return $url_list;
+	}
+
+	function execute_syn_fund_info($url, $fund_code, &$insert_count, &$sql, $margin) {
+		$html_data = file_get_contents($url);
+		$info_list = [];
+		$flag = $this->parse_one_fund_info($html_data, $info_list);
+		if ($flag == false) {
+			return;
+		}
+		//echo "info list\n";
+		//var_dump($info_list);
+
+		if ($insert_count != 0) {
+
+		} else {
+			$sql = "INSERT INTO `test_fund_info` (`code`, `exchange_status`) values ";
+		}
+		foreach ($info_list as $info) {
+			if (substr($sql, -1) != " ") {
+				$sql = $sql . ", ";
+			}
+			$sql = $sql . "('{$fund_code}', '{$info["exchange_status"]}')";
+		}
+
+		if (($insert_count % $margin) == ($margin - 1)) {
+			echo "do sql\n";
+			echo "wangyu split--\n";
+			var_dump($sql);
+			$sql = $sql . " ON DUPLICATE KEY UPDATE exchange_status=VALUES(exchange_status)";
+			$ret = DB::runSql($sql);
+			$sql = "";
+			$insert_count = 0;
+		} else {
+			$insert_count++;
+		}
+
+	}
+
+	function parse_one_fund_info($html_data, &$info_list){
+		$field = "exchange_status";
+		$info_list[$field] = "";
+		$ret = preg_match_all('/交易状态([\s\S\w\W\d\D]*?)<\/tr>/', $html_data, $cur_data);
+		if ($ret > 0) {
+			$data = $cur_data[0][0];
+			$start_p = strpos($data, "<span>", 0);
+			$end_p = 0;
+			$s1 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
+			if ($s1 ===false) {
+				$s1 = "";
+			} else {
+				$s1 = trim($s1, "<span>");
+				$s1 = trim($s1, "<\/span>");
+				$s1 = trim($s1);
+			}
+
+			$start_p = strpos($data, "<span>", $end_p+1);
+			$end_p = 0;
+			$s2 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
+			if ($s2 ===false) {
+				$s2 = "";
+			} else {
+				$s2 = trim($s2, "<span>");
+				$s2 = trim($s2, "<\/span>");
+				$s2 = trim($s2);
+			}
+
+			$start_p = strpos($data, "<span>", $end_p+1);
+			$end_p = 0;
+			$s3 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
+			if ($s3 ===false) {
+				$s3 = "";
+			} else {
+				$s3 = trim($s3, "<span>");
+				$s3 = trim($s3, "<\/span>");
+				$s3 = trim($s3);
+			}
+
+			$info_list[$field] = $s1." ".$s2." ".$s3;
+			return true;
+		}
+		return false;
 	}
 
 
