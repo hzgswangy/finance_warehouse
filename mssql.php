@@ -176,6 +176,19 @@ class mssql
 		return $res;
 	}
 
+	function get_patten_string_right_pos($data, $head, $end, $start_pos, &$end_pos) {
+
+		$ret = get_pattern_pos($data, $head, $end, $start_pos);
+		if ($ret === false) {
+			return false;
+		}
+		$end_pos = $ret;
+		$p1 = $start_pos; $p2 = $end_pos;
+		$res = substr($data, $p1, $p2 - $p1);
+		$end_pos = $p2;
+		return $res;
+	}
+
 	/*
 	 * get the string for the matched $head->$start(eg. xml)
 	 * NOTICE: the start pos is right the pos of the start pattern
@@ -1403,7 +1416,7 @@ class mssql
 
 	function syn_fund_info_from_net() {
 		// contruct url
-		$url_list = contruct_fund_info_urls();
+		$url_list = $this->contruct_fund_info_urls();
 
 		$insert_count = 0;
 		$sql = "";
@@ -1479,7 +1492,7 @@ class mssql
 			$data = $cur_data[0][0];
 			$start_p = strpos($data, "<span>", 0);
 			$end_p = 0;
-			$s1 = $this->get_pattern_string(data, "<span>", "<\/span>", $start_p, $end_p);
+			$s1 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
 			if ($s1 ===false) {
 				$s1 = "";
 			} else {
@@ -1490,7 +1503,7 @@ class mssql
 
 			$start_p = strpos($data, "<span>", $end_p+1);
 			$end_p = 0;
-			$s2 = $this->get_pattern_string(data, "<span>", "<\/span>", $start_p, $end_p);
+			$s2 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
 			if ($s2 ===false) {
 				$s2 = "";
 			} else {
@@ -1501,7 +1514,7 @@ class mssql
 
 			$start_p = strpos($data, "<span>", $end_p+1);
 			$end_p = 0;
-			$s3 = $this->get_pattern_string(data, "<span>", "<\/span>", $start_p, $end_p);
+			$s3 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
 			if ($s3 ===false) {
 				$s3 = "";
 			} else {
