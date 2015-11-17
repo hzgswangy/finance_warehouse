@@ -149,8 +149,12 @@ class mssql
 	}
 
 	// get row count for target table in sql server
-	private static function get_ms_row_count($table_name) {
-		$sql = "SELECT count(*) FROM $table_name ";
+	private static function get_ms_row_count($table_name, $addtion_where = null) {
+		$sql = "SELECT count(*) FROM [dbo].[{$table_name}] ";
+		if ($addtion_where != null) {
+			$sql = $sql." where {$addtion_where}";
+		}
+		var_dump($sql);
 		$ret = self::getData($sql);
 		var_dump($ret);
 		$count = (int) ($ret[0][""]);
@@ -254,7 +258,7 @@ class mssql
 	/*
  * $mysql_id, order
  */
-	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array = [], $mssql_id = null, $addtion_where = null, $pre_msdata_proc_function = None) {
+	function syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array = [], $mssql_id = null, $addtion_where = null, $pre_msdata_proc_function = null) {
 		// check variable
 		if ( !is_array($mysql_fields) || !is_array($mssql_fields) ) {
 			echo "input fields is not array";
@@ -270,7 +274,7 @@ class mssql
 		$sql = "";
 		if ($mssql_id !== null) {
 			// get total size
-			$sz = $this->get_ms_row_count($mssql_tbname);
+			$sz = $this->get_ms_row_count($mssql_tbname, $addtion_where);
 			$start_pos = 0;
 			$margin = 100;
 			$end_pos = $start_pos + $margin;
@@ -279,10 +283,14 @@ class mssql
 			while ($start_pos < $sz) {
 				$sql = "SELECT * from (SELECT *, ROW_NUMBER() OVER (ORDER BY $mssql_id) as row FROM [dbo].[{$mssql_tbname}]) a WHERE a.row >= {$start_pos} and a.row <= {$end_pos}";
 				if ($addtion_where != null) {
-					$sql = $sql." and {$addtion_where}";
+					$sql = "SELECT * from (SELECT *, ROW_NUMBER() OVER (ORDER BY $mssql_id) as row FROM [dbo].[{$mssql_tbname}] where {$addtion_where}) a WHERE a.row >= {$start_pos} and a.row <= {$end_pos}";
+				} else {
+					$sql = "SELECT * from (SELECT *, ROW_NUMBER() OVER (ORDER BY $mssql_id) as row FROM [dbo].[{$mssql_tbname}]) a WHERE a.row >= {$start_pos} and a.row <= {$end_pos}";
 				}
+        var_dump($sql);
 				$source_data = $this->getData($sql);
-				//var_dump($source_data);
+				var_dump("source");
+				var_dump($source_data);
 				if ($pre_msdata_proc_function != null) {
 					//$pre_msdata_proc_function($source_data);
 					$source_data = call_user_func($pre_msdata_proc_function, $source_data);
@@ -355,6 +363,7 @@ class mssql
 			// delete last ","
 			$tmp_sz = strlen($sql);
 			$sql = substr($sql, 0, $tmp_sz-1);
+			var_dump($sql);
 			DB::runSql($sql);
 		}
 
@@ -1331,23 +1340,20 @@ class mssql
 	 * 由于数据库较小，直接全部拷贝
 	 */
 	function syn_hushen300() {
-		$mysql_tbname = "test_stock";
+		$mysql_tbname = "stock";
 		$mysql_fields = ["date", "open", "close", "high", "low", "deal", "volumn"];
 
 		$mssql_tbname = "IDX_MKT_QUOTATION";
 		$mssql_fields = ["TRADINGDATE", "OPENPRICE", "CLOSEPRICE", "HIGHPRICE", "LOWPRICE", "AMOUNT", "VOLUME"];
 
-		$mysql_id_array = [];
-		$mssql_id = "SYMBOL";
+		$mysql_id_array = ["date"];
+		$mssql_id = "TRADINGDATE";
 		$addtion_where = "SYMBOL = '000300'";
-		$pre_msdata_proc_function = 'pre_proc_hushen300';
+		$pre_msdata_proc_function = null;
 
 		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id_array, $mssql_id, $addtion_where, $pre_msdata_proc_function);
 	}
 
-	function pre_proc_hushen300($data) {
-
-	}
 
 
 	/**
