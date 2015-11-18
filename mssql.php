@@ -622,7 +622,6 @@ class mssql
 	 */
 	public function syncSingle($symbol,$countRange=false)
 	{
-		var_dump($symbol);
 		if($countRange)
 		{
 			return $this->countRange($symbol);
@@ -1436,10 +1435,10 @@ class mssql
 			if ($item['TotalTNA'] == null) {
 				$item['TotalTNA']  = $item['TotalTNA'];
 			} else {
-        $tmp_float = (float) $item['TotalTNA'];
-        $tmp_float = $tmp_float / 100000000;
-        $tmp_float = number_format($tmp_float, 2, '.', '');
-        $item['TotalTNA'] =$tmp_float."亿";
+				$tmp_float = (float) $item['TotalTNA'];
+				$tmp_float = $tmp_float / 100000000;
+				$tmp_float = number_format($tmp_float, 2, '.', '');
+				$item['TotalTNA'] =$tmp_float."亿";
 			}
 			$item['trade status'] = "trade status";
 			array_push($new_data, $item);
@@ -1453,7 +1452,6 @@ class mssql
 		$insert_count = 0;
 		$sql = "";
 		$margin = 50;
-		var_dump($url_list);
 		foreach ($url_list as $url) {
 			$this->execute_syn_fund_info($url[1], $url[0], $insert_count, $sql, $margin);
 		}
