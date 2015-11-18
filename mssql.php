@@ -182,7 +182,7 @@ class mssql
 
 	function get_patten_string_right_pos($data, $head, $end, $start_pos, &$end_pos) {
 
-		$ret = get_pattern_pos($data, $head, $end, $start_pos);
+		$ret = $this->get_pattern_pos($data, $head, $end, $start_pos+1);
 		if ($ret === false) {
 			return false;
 		}
@@ -199,9 +199,9 @@ class mssql
 	 * $end_pos: the pos of the end pattern
 	 */
 	function get_pattern_pos($data, $head, $end, $start_pos) {
-		/*
+		/*	
 			echo "get_pattern_pos\n";
-			//var_dump($data);
+			var_dump($data);
 			var_dump($head);
 			var_dump($end);
 			var_dump($start_pos);
@@ -622,6 +622,7 @@ class mssql
 	 */
 	public function syncSingle($symbol,$countRange=false)
 	{
+		var_dump($symbol);
 		if($countRange)
 		{
 			return $this->countRange($symbol);
@@ -644,6 +645,7 @@ class mssql
 			$stm->bindParam(':range',$range);
 			$stm->bindParam(':create_date',$item['TRADINGDATE_FULL']);
 			$stm->bindParam(':update_date',$item['UPDATETIME']);
+			var_dump($stm);
 			$ret=$stm->execute();
 			$i++;
 			self::log("range for {$symbol} of date {$date} is {$range} => {$ret}");
@@ -1379,9 +1381,9 @@ class mssql
 		$sql="exec [dbo].graspFundInfo";
 		$ret = self::runRootSql($sql);
 		self::log("ret: {$ret}");
-		DB::runSql("TRUNCATE table test_fund_info");
+		//DB::runSql("TRUNCATE table test_fund_info");
 
-		$mysql_tbname = "test_fund_info";
+		$mysql_tbname = "fund_info";
 		$mysql_fields = ["name", "fullname", "code", "fund_type", "start_date", "status_desc", "exchange_status", "company", "manager", "rate_manage", "rate_hold", "scale_first", "mount_new", "bank", "scale_new", "invest_goal", "invest_range", "invest_plan", "invest_gain", "invest_risk"];
 		$mssql_tbname = "table_test_res";
 		$mssql_fields = ["SHORTNAME", "FULLNAME", "SYMBOL", "CATEGORY", "INCEPTIONDATE", "FUNDSTATUS", "trade status", "FUNDCOMPANYNAME", "ManagerName", "MANAGEMENTFEE", "CUSTODIANFEE", "INCEPTIONTNA", "EndDateShares", "CUSTODIAN", "TotalTNA", "INVESTMENTGOAL", "INVESTMENTSCOPE", "STRATEGY", "invest return", "RISKDESCRIPTION"];
@@ -1394,39 +1396,64 @@ class mssql
 	}
 
 	function pre_process_info($data) {
+		echo "pre_process_info\n";
+		$new_data = [];
 		foreach ($data as $index => $item) {
 
 			if ($item['MANAGEMENTFEE'] != null) {
-				$item['MANAGEMENTFEE'] = (float) $item['MANAGEMENTFEE'];
+				if ($item['MANAGEMENTFEE'] < 0) {
+					$item['MANAGEMENTFEE'] = "0".$item['MANAGEMENTFEE'];
+				}
+				$item['MANAGEMENTFEE'] =  $item['MANAGEMENTFEE']."%";
 			} else {
-				$item['MANAGEMENTFEE'] = 1;
+				$item['MANAGEMENTFEE'] = "0%";
 			}
+
 			if ($item['CUSTODIANFEE'] != null) {
-				$item['CUSTODIANFEE'] = (float) $item['CUSTODIANFEE'];
+				if ($item['CUSTODIANFEE'] < 0) {
+					$item['CUSTODIANFEE'] = "0".$item['CUSTODIANFEE'];
+				}
+				$item['CUSTODIANFEE'] = (float) $item['CUSTODIANFEE']."%";
 			} else {
-				$item['CUSTODIANFEE'] = -1;
+				$item['CUSTODIANFEE'] = "0";
 			}
 			if ($item['INCEPTIONTNA'] == null) {
 				$item['INCEPTIONTNA']  = -1;
+			} else {	
+				$tmp_float = (float) $item['INCEPTIONTNA'];
+				$tmp_float = $tmp_float / 100000000;
+				$tmp_float = number_format($tmp_float, 2, '.', '');
+				$item['INCEPTIONTNA'] =$tmp_float."亿";
 			}
 			if ($item['EndDateShares'] == null) {
 				$item['EndDateShares'] = -1;
+			} else {
+				$tmp_float = (float) $item['EndDateShares'];
+				$tmp_float = $tmp_float / 10000;
+				$tmp_float = number_format($tmp_float, 2, '.', '');
+				$item['EndDateShares'] =$tmp_float."万份";
 			}
 			if ($item['TotalTNA'] == null) {
 				$item['TotalTNA']  = $item['TotalTNA'];
+			} else {
+        $tmp_float = (float) $item['TotalTNA'];
+        $tmp_float = $tmp_float / 100000000;
+        $tmp_float = number_format($tmp_float, 2, '.', '');
+        $item['TotalTNA'] =$tmp_float."亿";
 			}
 			$item['trade status'] = "trade status";
+			array_push($new_data, $item);
 		}
-		return $data;
+		return $new_data;
 	}
 
 	function syn_fund_info_from_net() {
 		// contruct url
 		$url_list = $this->contruct_fund_info_urls();
-
 		$insert_count = 0;
 		$sql = "";
 		$margin = 50;
+		var_dump($url_list);
 		foreach ($url_list as $url) {
 			$this->execute_syn_fund_info($url[1], $url[0], $insert_count, $sql, $margin);
 		}
@@ -1450,6 +1477,7 @@ class mssql
 			$tmp_s = $tmp_s.$item["code"];
 			array_push($tmp_list, $item["code"]);
 			array_push($tmp_list, $tmp_s);
+			array_push($url_list, $tmp_list);
 		}
 		return $url_list;
 	}
@@ -1467,14 +1495,12 @@ class mssql
 		if ($insert_count != 0) {
 
 		} else {
-			$sql = "INSERT INTO `test_fund_info` (`code`, `exchange_status`) values ";
+			$sql = "INSERT INTO `fund_info` (`code`, `exchange_status`) values ";
 		}
-		foreach ($info_list as $info) {
-			if (substr($sql, -1) != " ") {
-				$sql = $sql . ", ";
-			}
-			$sql = $sql . "('{$fund_code}', '{$info["exchange_status"]}')";
+		if (substr($sql, -1) != " ") {
+			$sql = $sql . ", ";
 		}
+		$sql = $sql . "('{$fund_code}', '{$info_list["exchange_status"]}')";
 
 		if (($insert_count % $margin) == ($margin - 1)) {
 			echo "do sql\n";
@@ -1498,7 +1524,8 @@ class mssql
 			$data = $cur_data[0][0];
 			$start_p = strpos($data, "<span>", 0);
 			$end_p = 0;
-			$s1 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
+			$s1 = $this->get_patten_string_right_pos($data, "<span>", "</span>", $start_p, $end_p);
+			var_dump($s1);
 			if ($s1 ===false) {
 				$s1 = "";
 			} else {
@@ -1509,7 +1536,8 @@ class mssql
 
 			$start_p = strpos($data, "<span>", $end_p+1);
 			$end_p = 0;
-			$s2 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
+			$s2 = $this->get_patten_string_right_pos($data, "<span>", "</span>", $start_p, $end_p);
+			var_dump($s2);
 			if ($s2 ===false) {
 				$s2 = "";
 			} else {
@@ -1520,7 +1548,9 @@ class mssql
 
 			$start_p = strpos($data, "<span>", $end_p+1);
 			$end_p = 0;
-			$s3 = $this->get_patten_string_right_pos(data, "<span>", "<\/span>", $start_p, $end_p);
+			$s3 = $this->get_patten_string_right_pos($data, "<span>", "</span>", $start_p, $end_p);
+			var_dump($s3);
+			echo "end\n";
 			if ($s3 ===false) {
 				$s3 = "";
 			} else {
@@ -1528,8 +1558,10 @@ class mssql
 				$s3 = trim($s3, "<\/span>");
 				$s3 = trim($s3);
 			}
+			
 
 			$info_list[$field] = $s1." ".$s2." ".$s3;
+			var_dump($info_list);
 			return true;
 		}
 		return false;
@@ -4300,6 +4332,11 @@ class mssql
 		}
 		$num = count($data);
 		self::log("FIXED {$i}, OK {$j} ,Total {$num}");
+	}
+
+	public function syn_sing_fund_wangyu() {
+		$symbol = '001093';
+		$this->syncSingle($symbol, false);
 	}
 
 
