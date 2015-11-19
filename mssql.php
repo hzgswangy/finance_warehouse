@@ -4045,10 +4045,11 @@ class mssql
 
 					} else {
 						$end_pos = 0;
-						$content_total_data = get_patten_string_right_pos($content_data, "<div id=\"jjggzwcontent\">", "</div>", $pos, $end_pos);
+						$content_total_data = $this->get_patten_string_right_pos($content_data, "<div id=\"jjggzwcontent\">", "</div>", $pos, $end_pos);
 						if ($content_total_data === false) {
 
 						} else {
+							echo "content_total_data\n";
 							var_dump($content_total_data);
 							$content = "";
 							if ( preg_match_all('/<div id="jjggzwcontentt"><span>([\s\S]*?)<\/span>/', $content_total_data, $tmp_match_data) != 0) {
