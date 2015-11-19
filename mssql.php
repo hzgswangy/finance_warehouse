@@ -4038,8 +4038,30 @@ class mssql
 				$tmp_array = [];
 				if ( preg_match_all('/a href=\'([\s\S]*?)\'>/', $match_data[1][0], $tmp_match_data) != 0) {
 					$tmp_array["url"] = trim($tmp_match_data[1][0]);
+					// get content
+					$content_data = file_get_contents($tmp_array["url"]);
+					$pos = strpos($content_data, "<div id=\"jjggzwcontent\">");
+					if ($pos === false) {
+
+					} else {
+						$end_pos = 0;
+						$content_total_data = get_patten_string_right_pos($content_data, "<div id=\"jjggzwcontent\">", "</div>", $pos, $end_pos);
+						if ($content_total_data === false) {
+
+						} else {
+							var_dump($content_total_data);
+							$content = "";
+							if ( preg_match_all('/<div id="jjggzwcontentt"><span>([\s\S]*?)<\/span>/', $content_total_data, $tmp_match_data) != 0) {
+								$content = $content.trim($tmp_match_data[1][0])."\n";
+							}
+							if ( preg_match_all('/<pre>([\s\S]*?)<a class/', $content_total_data, $tmp_match_data) != 0) {
+								$content = $content.trim($tmp_match_data[1][0]);
+							}
+							$tmp_array["content"] = $content;
+						}
+					}
 				}
-				var_dump($match_data[0][0]);
+
 				if ( preg_match_all('/html\'>([\s\S]*?)<\/td>/',$match_data[0][0], $tmp_match_data) != 0) {
 					$tmp_array["title"] = trim($tmp_match_data[1][0]);
 				}
