@@ -4017,7 +4017,7 @@ class mssql
 			$url = "http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code="
 					.$code."&page=".$count."&per=".$per."&rt=0.09834829764440656";
 			$html_data = file_get_contents($url);
-			var_dump($url);
+			//var_dump($url);
 			if ( preg_match_all('/<tbody>([\s\S]*?)<\/tbody>/',$html_data, $match_data) == 0) {
 				break;
 			}
@@ -4027,7 +4027,7 @@ class mssql
 			}
 			$item_array = $match_data[1];
 			$res_array = [];
-			var_dump($item_array);
+			//var_dump($item_array);
 			foreach ($item_array as $item) {
 				//var_dump($item);
 				$ret = preg_match_all('/<td([\s\S]*?)<\/td>/',$item, $match_data);
@@ -4049,8 +4049,8 @@ class mssql
 						if ($content_total_data === false) {
 
 						} else {
-							echo "content_total_data\n";
-							var_dump($content_total_data);
+							//echo "content_total_data\n";
+							//var_dump($content_total_data);
 							$content = "";
 							if ( preg_match_all('/<div id="jjggzwcontentt"><span>([\s\S]*?)<\/span>/', $content_total_data, $tmp_match_data) != 0) {
 								$content = $content.trim($tmp_match_data[1][0])."\n";
@@ -4076,8 +4076,25 @@ class mssql
 				array_push($res_array, $tmp_array);
 			}
 			var_dump($res_array);
-			
+
+			// insert
+			$sql = "INSERT INTO test_fund_notice (`code`, `notice_type`, `title`, `create_date`, `content`, `url`) VALUES ";
+			$flag = false;
+			foreach ($res_array as $item) {
+				if ($flag) {
+					$slq = $sql.", ";
+				} else {
+					$flag = true;
+				}
+				$sql = " ( '{$code}', '{$item["notice_type"]}','{$item["title"]}','{$item["create_date"]}','{$item["content"]}', '{$item["url"]}') ";
+			}
+
+			if ($flag) {
+				$sql = $sql." ON DUPLICATE KEY UPDATE notice_type=VALUES(notice_type), title=VALUES(title), content=VALUES(content), url=VALUES(url)";
+				$ret = DB::runSql($sql);
+			}
 		}
+
 
 	}
 
