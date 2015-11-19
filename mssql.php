@@ -4027,8 +4027,10 @@ class mssql
 			}
 			$item_array = $match_data[1];
 			$res_array = [];
+			var_dump($item_array);
 			foreach ($item_array as $item) {
-				$ret = preg_match_all('/<td>([\s\S]*?)<\/td>/',$item, $match_data);
+				//var_dump($item);
+				$ret = preg_match_all('/<td([\s\S]*?)<\/td>/',$item, $match_data);
 				if ($ret == 0) {
 					continue;
 				}
@@ -4037,15 +4039,16 @@ class mssql
 				if ( preg_match_all('/a href=\'([\s\S]*?)\'>/', $match_data[1][0], $tmp_match_data) != 0) {
 					$tmp_array["url"] = trim($tmp_match_data[1][0]);
 				}
-				if ( preg_match_all('/\'>([\s\S]*?)<a class/',$match_data[1][0], $tmp_match_data) != 0) {
+				var_dump($match_data[0][0]);
+				if ( preg_match_all('/html\'>([\s\S]*?)<\/td>/',$match_data[0][0], $tmp_match_data) != 0) {
 					$tmp_array["title"] = trim($tmp_match_data[1][0]);
 				}
 
 				if ($ret > 1) {
-					$tmp_array["notice_type"] = trim($match_data[1][1]);
+					$tmp_array["notice_type"] = trim($match_data[1][1], ">");
 				}
 				if ($ret > 2) {
-					$tmp_array["create_date"] = trim($match_data[1][2]);
+					$tmp_array["create_date"] = trim($match_data[1][2], ">");
 				}
 				array_push($res_array, $tmp_array);
 			}
