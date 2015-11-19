@@ -3999,7 +3999,7 @@ class mssql
 	// ----------------------------------- update fund notice ----------------------------------------//
 	function syn_fund_notice() {
 		// get symbol
-		$sql = "select DISCONNECT(code) from fund_info";
+		$sql = "select DISTINCT(code) from fund_info";
 		$symbol_list = DB::getData($sql);
 
 		foreach ($symbol_list as $item) {
@@ -4012,13 +4012,16 @@ class mssql
 	function syn_fund_notice_per_fund($code) {
 		$per = 10;
 		http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code=340006&page=1&per=1000&class=0&rt=0.09834829764440656
-		for ($count = 0; $count < 10; $count++) {
+		for ($count = 1; $count < 10; $count++) {
 			// construct url
 			$url = "http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code="
-					.$code."&page="$count."&per=".$per."&rt=0.09834829764440656";
+					.$code."&page=".$count."&per=".$per."&rt=0.09834829764440656";
 			$html_data = file_get_contents($url);
+			var_dump($url);
 			preg_match_all('/<tbody>([\s\S]*?)<\/tbody>/',$html_data, $match_data);
 			$body_data = $match_data[0][0];
+			//$data_array = explode("</tr>", $body_data);
+			//var_dump($data_array);
 			preg_match_all('/<tr>([\s\S]*?)<\/tr>/',$body_data, $match_data);
 			var_dump($match_data[0]);
 			break;
