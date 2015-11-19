@@ -3996,6 +3996,38 @@ class mssql
 
 	// ----------------------------------- update fund stock and bond total percent end ---------------//
 
+	// ----------------------------------- update fund notice ----------------------------------------//
+	function syn_fund_notice() {
+		// get symbol
+		$sql = "select DISCONNECT(code) from fund_info";
+		$symbol_list = DB::getData($sql);
+
+		foreach ($symbol_list as $item) {
+			$this->syn_fund_notice_per_fund($item["code"]);
+			break;
+		}
+
+	}
+
+	function syn_fund_notice_per_fund($code) {
+		$per = 10;
+		http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code=340006&page=1&per=1000&class=0&rt=0.09834829764440656
+		for ($count = 0; $count < 10; $count++) {
+			// construct url
+			$url = "http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code="
+					.$code."&page="$count."&per=".$per."&rt=0.09834829764440656";
+			$html_data = file_get_contents($url);
+			preg_match_all('/<tbody>([\s\S]*?)<\/tbody>/',$html_data, $match_data);
+			$body_data = $match_data[0][0];
+			preg_match_all('/<tr>([\s\S]*?)<\/tr>/',$body_data, $match_data);
+			var_dump($match_data[0]);
+			break;
+		}
+
+	}
+
+	// ----------------------------------- update fund notice end ------------------------------------//
+
 
 	/*
  * takes about 12min
