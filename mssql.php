@@ -4010,21 +4010,47 @@ class mssql
 	}
 
 	function syn_fund_notice_per_fund($code) {
-		$per = 10;
+		$per = 1000;
 		http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code=340006&page=1&per=1000&class=0&rt=0.09834829764440656
-		for ($count = 1; $count < 10; $count++) {
+		for ($count = 1; $count < 20; $count++) {
 			// construct url
 			$url = "http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code="
 					.$code."&page=".$count."&per=".$per."&rt=0.09834829764440656";
 			$html_data = file_get_contents($url);
 			var_dump($url);
-			preg_match_all('/<tbody>([\s\S]*?)<\/tbody>/',$html_data, $match_data);
+			if ( preg_match_all('/<tbody>([\s\S]*?)<\/tbody>/',$html_data, $match_data) == 0) {
+				break;
+			}
 			$body_data = $match_data[0][0];
-			//$data_array = explode("</tr>", $body_data);
-			//var_dump($data_array);
-			preg_match_all('/<tr>([\s\S]*?)<\/tr>/',$body_data, $match_data);
-			var_dump($match_data[0]);
-			break;
+			if (preg_match_all('/<tr>([\s\S]*?)<\/tr>/',$body_data, $match_data) == 0) {
+				break;
+			}
+			$item_array = $match_data[1];
+			$res_array = [];
+			foreach ($item_array as $item) {
+				$ret = preg_match_all('/<td>([\s\S]*?)<\/td>/',$item, $match_data);
+				if ($ret == 0) {
+					continue;
+				}
+				// title,url
+				$tmp_array = [];
+				if ( preg_match_all('/a href=\'([\s\S]*?)\'>/', $match_data[1][0], $tmp_match_data) != 0) {
+					$tmp_array["url"] = trim($tmp_match_data[1][0]);
+				}
+				if ( preg_match_all('/\'>([\s\S]*?)<a class/',$match_data[1][0], $tmp_match_data) != 0) {
+					$tmp_array["title"] = trim($tmp_match_data[1][0]);
+				}
+
+				if ($ret > 1) {
+					$tmp_array["notice_type"] = trim($match_data[1][1]);
+				}
+				if ($ret > 2) {
+					$tmp_array["create_date"] = trim($match_data[1][2]);
+				}
+				array_push($res_array, $tmp_array);
+			}
+			var_dump($res_array);
+			
 		}
 
 	}
