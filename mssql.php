@@ -3538,6 +3538,11 @@ class mssql
 		var_dump($first_pos);
 		var_dump($end_pos);
 
+		if ($first_pos == -1 && $end_pos == -1) {
+			$sql = $sql."update test_fund_manager_bonus_split set per = {$pre_bonus}  WHERE code = {$code};";
+			$this->run_sql($sql, $insert_count, $margin);
+			return;
+		}
 		if ($first_pos == -1 || $end_pos == -1) {
 			$bonus = $pre_bonus;
 			$sql = $sql."update test_fund_manager_bonus_split set per = {$bonus}  WHERE code = {$code} and ";
@@ -3638,7 +3643,7 @@ class mssql
 		if ($insert_count != 0) {
 			$sql = $sql.", ";
 		} else {
-			$sql = "INSERT INTO `test_fund_manager_bonus_split` (`code`, `create_date`)  values  ";
+			$sql = "INSERT IGNORE INTO `test_fund_manager_bonus_split` (`code`, `create_date`)  values  ";
 		}
 
 		$sql = $sql." ('{$item["code"]}', '{$item["create_date"]}')";
@@ -4333,8 +4338,16 @@ class mssql
 	}
 
 	public function syn_sing_fund_wangyu() {
-		$symbol = '001093';
-		$this->syncSingle($symbol, false);
+		$symbol = '486002';
+		//$this->syncSingle($symbol, false);
+		$sql = "select distinct(code) from test_fund_manager_bonus_split where split_percent is NULL or per is NULL;";
+		$data = DB::getData($sql);
+		var_dump($data);
+		foreach ($data as $item) {
+			$symbol = $item["code"];
+			$this->construct_relative_bonus_split_per_fund($symbol);
+		}
+
 	}
 
 
