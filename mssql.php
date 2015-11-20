@@ -1560,6 +1560,20 @@ class mssql
 
 			$info_list[$field] = $s1." ".$s2." ".$s3;
 			var_dump($info_list);
+
+			// add more
+			$info_list["fund_type"] = "";
+			$ret = preg_match_all('/基金类型</td>([\s\S\w\W\d\D]*?)<\/td>/', $html_data, $cur_data);
+			if ($ret == 0) {
+				return false;
+			}
+			$cur_data = $cur_data[1][0];
+			$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)<\/a>/', $html_data, $cur_data);
+			if ($ret == 0) {
+				return false;
+			}
+			var_dump($cur_data);
+
 			return true;
 		}
 		return false;
@@ -4107,6 +4121,12 @@ class mssql
 
 	// ----------------------------------- update fund notice end ------------------------------------//
 
+	// ----------------------------------- update fund distribution type end -------------------------//
+	function syn_fund_distribution() {
+
+	}
+
+	// ----------------------------------- update fund distribution type end -------------------------//
 
 	/*
  * takes about 12min
