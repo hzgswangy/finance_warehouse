@@ -4018,13 +4018,12 @@ class mssql
 
 		foreach ($symbol_list as $item) {
 			$this->syn_fund_notice_per_fund($item["code"]);
-			break;
 		}
 
 	}
 
 	function syn_fund_notice_per_fund($code) {
-		$per = 1000;
+		$per = 100;
 		http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code=340006&page=1&per=1000&class=0&rt=0.09834829764440656
 		for ($count = 1; $count < 20; $count++) {
 			// construct url
@@ -4044,6 +4043,8 @@ class mssql
 			//var_dump($item_array);
 			foreach ($item_array as $item) {
 				//var_dump($item);
+				echo "one item\n";
+				$item =iconv("GBK", "UTF-8", $item);
 				$ret = preg_match_all('/<td([\s\S]*?)<\/td>/',$item, $match_data);
 				if ($ret == 0) {
 					continue;
@@ -4059,25 +4060,30 @@ class mssql
 
 					} else {
 						$end_pos = 0;
-						$content_total_data = $this->get_patten_string_right_pos($content_data, "<div id=\"jjggzwcontent\">", "</div>", $pos, $end_pos);
+						$content_total_data = $this->get_patten_string_right_pos($content_data, "<div", "</div>", $pos, $end_pos);
 						if ($content_total_data === false) {
 
 						} else {
 							//echo "content_total_data\n";
 							//var_dump($content_total_data);
 							$content = "";
-							if ( preg_match_all('/<div id="jjggzwcontentt"><span>([\s\S]*?)<\/span>/', $content_total_data, $tmp_match_data) != 0) {
-								$content = $content.trim($tmp_match_data[1][0])."\n";
-							}
-							if ( preg_match_all('/<pre>([\s\S]*?)<a class/', $content_total_data, $tmp_match_data) != 0) {
-								$content = $content.trim($tmp_match_data[1][0]);
+							//if ( preg_match_all('/<div id="jjggzwcontentt"><span>([\s\S]*?)<\/span>/', $content_total_data, $tmp_match_data) != 0) {
+							//	$content = $content.trim($tmp_match_data[1][0])."\n";
+							//}
+							if ( preg_match_all('/<pre>([\s\S]*?)<\/pre>/', $content_total_data, $tmp_match_data) != 0) {
+								$content = trim($tmp_match_data[1][0]);
+								$content = trim($content, "<pre>");
+								$content = trim($content, "</pre>");
+								$content = trim($content, "");
+								$content = str_replace("'", "''", $content);
 							}
 							$tmp_array["content"] = $content;
 						}
 					}
 				}
 
-				if ( preg_match_all('/html\'>([\s\S]*?)<\/td>/',$match_data[0][0], $tmp_match_data) != 0) {
+				//var_dump($match_data[0][0]);
+				if ( preg_match_all('/html\'>([\s\S]*?)</',$match_data[0][0], $tmp_match_data) != 0) {
 					$tmp_array["title"] = trim($tmp_match_data[1][0]);
 				}
 
@@ -4089,22 +4095,23 @@ class mssql
 				}
 				array_push($res_array, $tmp_array);
 			}
-			var_dump($res_array);
+			//var_dump($res_array);
 
 			// insert
 			$sql = "INSERT INTO test_fund_notice (`code`, `notice_type`, `title`, `create_date`, `content`, `url`) VALUES ";
 			$flag = false;
 			foreach ($res_array as $item) {
 				if ($flag) {
-					$slq = $sql.", ";
+					$sql = $sql.", ";
 				} else {
 					$flag = true;
 				}
-				$sql = " ( '{$code}', '{$item["notice_type"]}','{$item["title"]}','{$item["create_date"]}','{$item["content"]}', '{$item["url"]}') ";
+				$sql = $sql." ( '{$code}', '{$item["notice_type"]}','{$item["title"]}','{$item["create_date"]}','{$item["content"]}', '{$item["url"]}') ";
 			}
 
 			if ($flag) {
 				$sql = $sql." ON DUPLICATE KEY UPDATE notice_type=VALUES(notice_type), title=VALUES(title), content=VALUES(content), url=VALUES(url)";
+				//var_dump($sql);
 				$ret = DB::runSql($sql);
 			}
 		}
