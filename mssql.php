@@ -1122,18 +1122,30 @@ class mssql
 
 	}
 	//获取货币基金最新净值两条,执行较快（10分钟）,非货币基金不可执行,会导致range有问题
-	public function newvalue($code=470028,$codes=null)
+	public function newvalue($code=470028,$codes=null,$is_money=true)
 	{
+		var_dump($is_money);
 		if(!$codes)
 		{
 			$codes=DB::getData("SELECT DISTINCT code FROM `fund_info` WHERE fund_type='理财型' OR fund_type='货币型' ORDER BY `code` ");
 		}
 		$codes=array_column($codes,'code');
-		if(!in_array($code,$codes))
-		{
-			//必须是货币基金
-			self::log("{$code} is not correct");
-			return;
+		if ($is_money) {
+			if(!in_array($code,$codes))
+			{
+				//必须是货币基金
+				self::log("{$code} is not correct");
+				return;
+			}
+		} else {
+			/*
+      if(in_array($code,$codes))
+      {
+        //必须不是货币基金
+        self::log("{$code} is not correct");
+        return;
+      }
+			*/
 		}
 		$url="http://fund.eastmoney.com/f10/F10DataApi.aspx?type=lsjz&code={$code}&page=1&per=2&sdate=&edate";
 		$html=file_get_contents($url);
@@ -1150,6 +1162,16 @@ class mssql
 					$data[$date]['unit']=trim(strip_tags($matches2[0][0]));
 					$data[$date]['all']=$all;
 					$data[$date]['range']=sprintf('%.6f',$data[$date]['unit']/100).'%';
+					//echo "before in\n";
+					if ($is_money == false) {
+						var_dump($matches[0]);
+						echo "in \n";
+						$data[$date]['range'] = "0%";
+						if ( count($matches2[0]) >= 3 ) {
+							$data[$date]['range']=trim(strip_tags($matches2[0][2]));
+						}
+					}
+					var_dump($data);
 				}
 			}
 		}
@@ -1383,9 +1405,9 @@ class mssql
 		//DB::runSql("TRUNCATE table test_fund_info");
 
 		$mysql_tbname = "fund_info";
-		$mysql_fields = ["name", "fullname", "code", "fund_type", "start_date", "status_desc", "exchange_status", "company", "manager", "rate_manage", "rate_hold", "scale_first", "mount_new", "bank", "scale_new", "invest_goal", "invest_range", "invest_plan", "invest_gain", "invest_risk"];
+		$mysql_fields = ["name", "fullname", "code", "start_date", "status_desc", "company", "manager", "rate_manage", "rate_hold", "scale_first", "mount_new", "bank", "scale_new", "invest_goal", "invest_range", "invest_plan", "invest_gain", "invest_risk"];
 		$mssql_tbname = "table_test_res";
-		$mssql_fields = ["SHORTNAME", "FULLNAME", "SYMBOL", "CATEGORY", "INCEPTIONDATE", "FUNDSTATUS", "trade status", "FUNDCOMPANYNAME", "ManagerName", "MANAGEMENTFEE", "CUSTODIANFEE", "INCEPTIONTNA", "EndDateShares", "CUSTODIAN", "TotalTNA", "INVESTMENTGOAL", "INVESTMENTSCOPE", "STRATEGY", "invest return", "RISKDESCRIPTION"];
+		$mssql_fields = ["SHORTNAME", "FULLNAME", "SYMBOL", "INCEPTIONDATE", "FUNDSTATUS", "FUNDCOMPANYNAME", "ManagerName", "MANAGEMENTFEE", "CUSTODIANFEE", "INCEPTIONTNA", "EndDateShares", "CUSTODIAN", "TotalTNA", "INVESTMENTGOAL", "INVESTMENTSCOPE", "STRATEGY", "invest return", "RISKDESCRIPTION"];
 		$mysql_id_array = ["name", "fullname", "code", "fund_type"];
 		$mssql_id = "SYMBOL";
 		$addtion_where = null;
@@ -1425,7 +1447,7 @@ class mssql
 				$item['INCEPTIONTNA'] =$tmp_float."亿";
 			}
 			if ($item['EndDateShares'] == null) {
-				$item['EndDateShares'] = -1;
+				$item['EndDateShares'] = "--";
 			} else {
 				$tmp_float = (float) $item['EndDateShares'];
 				$tmp_float = $tmp_float / 10000;
@@ -1433,7 +1455,7 @@ class mssql
 				$item['EndDateShares'] =$tmp_float."万份";
 			}
 			if ($item['TotalTNA'] == null) {
-				$item['TotalTNA']  = $item['TotalTNA'];
+				$item['TotalTNA']  = "--";
 			} else {
 				$tmp_float = (float) $item['TotalTNA'];
 				$tmp_float = $tmp_float / 100000000;
@@ -1493,18 +1515,18 @@ class mssql
 		if ($insert_count != 0) {
 
 		} else {
-			$sql = "INSERT INTO `fund_info` (`code`, `exchange_status`) values ";
+			$sql = "INSERT INTO `fund_info` (`code`, `exchange_status`, `fund_type`, `rate_manage`, `rate_hold`) values ";
 		}
 		if (substr($sql, -1) != " ") {
 			$sql = $sql . ", ";
 		}
-		$sql = $sql . "('{$fund_code}', '{$info_list["exchange_status"]}')";
+		$sql = $sql . "('{$fund_code}', '{$info_list["exchange_status"]}', '{$info_list["fund_type"]}', '{$info_list["rate_manager"]}', '{$info_list["rate_hold"]}')";
 
 		if (($insert_count % $margin) == ($margin - 1)) {
 			echo "do sql\n";
 			echo "wangyu split--\n";
 			var_dump($sql);
-			$sql = $sql . " ON DUPLICATE KEY UPDATE exchange_status=VALUES(exchange_status)";
+			$sql = $sql . " ON DUPLICATE KEY UPDATE exchange_status=VALUES(exchange_status), fund_type=VALUES(fund_type), rate_manage=VALUES(rate_manage), rate_hold=VALUES(rate_hold)";
 			$ret = DB::runSql($sql);
 			$sql = "";
 			$insert_count = 0;
@@ -1523,7 +1545,7 @@ class mssql
 			$start_p = strpos($data, "<span>", 0);
 			$end_p = 0;
 			$s1 = $this->get_patten_string_right_pos($data, "<span>", "</span>", $start_p, $end_p);
-			var_dump($s1);
+			//var_dump($s1);
 			if ($s1 ===false) {
 				$s1 = "";
 			} else {
@@ -1535,7 +1557,7 @@ class mssql
 			$start_p = strpos($data, "<span>", $end_p+1);
 			$end_p = 0;
 			$s2 = $this->get_patten_string_right_pos($data, "<span>", "</span>", $start_p, $end_p);
-			var_dump($s2);
+			//var_dump($s2);
 			if ($s2 ===false) {
 				$s2 = "";
 			} else {
@@ -1547,7 +1569,7 @@ class mssql
 			$start_p = strpos($data, "<span>", $end_p+1);
 			$end_p = 0;
 			$s3 = $this->get_patten_string_right_pos($data, "<span>", "</span>", $start_p, $end_p);
-			var_dump($s3);
+			//var_dump($s3);
 			echo "end\n";
 			if ($s3 ===false) {
 				$s3 = "";
@@ -1559,21 +1581,65 @@ class mssql
 			
 
 			$info_list[$field] = $s1." ".$s2." ".$s3;
-			var_dump($info_list);
 
 			// add more
 			$info_list["fund_type"] = "";
-			$ret = preg_match_all('/基金类型</td>([\s\S\w\W\d\D]*?)<\/td>/', $html_data, $cur_data);
+			$ret = preg_match_all('/基金类型<\/td>([\s\S\w\W\d\D]*?)<\/td>/', $html_data, $cur_data);
 			if ($ret == 0) {
 				return false;
 			}
 			$cur_data = $cur_data[1][0];
-			$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)<\/a>/', $html_data, $cur_data);
+			$ret = preg_match_all('/target="_blank">([\s\S\w\W\d\D]*?)<\/a>/', $cur_data, $cur_data);
 			if ($ret == 0) {
 				return false;
 			}
-			var_dump($cur_data);
+			$cur_data = trim($cur_data[1][0]);
+			$info_list["fund_type"] = $cur_data;
 
+			// fee
+			$info_list["rate_manager"] = "";
+			$ret = preg_match_all('/基金管理费<\/td>([\s\S\w\W\d\D]*?)<\/td>/', $html_data, $cur_data);
+			if ($ret == 0) {
+				return false;
+			}
+			$cur_data = $cur_data[1][0];
+			$str_p = strpos($cur_data, ">");
+			$info_list["rate_manager"] = substr($cur_data, $str_p+1, strlen($cur_data)-$str_p-1);
+
+			$info_list["rate_hold"] = "";
+			$ret = preg_match_all('/基金托管费<\/td>([\s\S\w\W\d\D]*?)<\/td>/', $html_data, $cur_data);
+			if ($ret == 0) {
+				return false;
+			}
+      $cur_data = $cur_data[1][0];
+      $str_p = strpos($cur_data, ">");
+      $info_list["rate_hold"] = substr($cur_data, $str_p+1, strlen($cur_data)-$str_p-1);
+
+			/*
+			// scale new
+      $info_list["scale_new"] = "";
+      $ret = preg_match_all('/最新规模<\/td>([\s\S\w\W\d\D]*?)<\/td>/', $html_data, $cur_data);
+      if ($ret == 0) { 
+        return false;
+      }
+      $cur_data = $cur_data[1][0];
+      $str_p_start = strpos($cur_data, ">");
+      $str_p_end = strpos($cur_data, "（");
+      $info_list["scale_new"] = trim(substr($cur_data, $str_p+1, $str_p_end -$str_p-1));
+
+			// mount new
+      $info_list["mount_new"] = "";
+      $ret = preg_match_all('/最新份额<\/td>([\s\S\w\W\d\D]*?)<\/td>/', $html_data, $cur_data);
+      if ($ret == 0) {
+        return false;
+      }
+      $cur_data = $cur_data[1][0];
+      $str_p_start = strpos($cur_data, ">");
+      $str_p_end = strpos($cur_data, "（");
+      $info_list["mount_new"] = trim(substr($cur_data, $str_p+1, $str_p_end -$str_p-1));
+			*/
+
+			var_dump($info_list);
 			return true;
 		}
 		return false;
@@ -1702,7 +1768,7 @@ class mssql
 		$target_data = DB::getData($sql);
 		$target_size = count($target_data);
 		*/
-		$sql="SELECT `updateid` FROM `test_fund_stock` order by updateid desc limit 1";
+		$sql="SELECT `updateid` FROM `fund_stock` order by updateid desc limit 1";
 		$target_id_array = DB::getData($sql);
 		if (count($target_id_array) > 0) {
 			$max_target_id = $target_id_array[0]['updateid'];
@@ -1715,7 +1781,7 @@ class mssql
 		$target_id_end = $target_id_start + $target_margin;
 		$target_data = [];
 		while ($target_id_start <= $max_target_id) {
-			$sql = "SELECT `updateid` FROM `test_fund_stock` where updateid>={$target_id_start} and updateid<{$target_id_end} order by updateid";
+			$sql = "SELECT `updateid` FROM `fund_stock` where updateid>={$target_id_start} and updateid<{$target_id_end} order by updateid";
 			$target_part_id = DB::getData($sql);
 			foreach ($target_part_id as $item) {
 				array_push($target_data, $item['updateid']);
@@ -1820,7 +1886,7 @@ class mssql
 		if ($insert_count != 0) {
 			$sql = $sql.", ";
 		} else {
-			$sql = "INSERT INTO `test_fund_stock` (`fund_code`,`code`,`name`,`percent`,`mount`,`price`,`update_date`,`start_date`,`end_date`,`updateid`) VALUES ";
+			$sql = "INSERT INTO `fund_stock` (`fund_code`,`code`,`name`,`percent`,`mount`,`price`,`update_date`,`start_date`,`end_date`,`updateid`) VALUES ";
 		}
 		$stock_name = $item['STOCKNAME'];
 		$stock_name = str_replace("'", "''", $stock_name);
@@ -1852,17 +1918,20 @@ class mssql
 
 		//DB::runSql("TRUNCATE table test_fund_manager_funds_TT");
 		// generate manager info url
-		$url="http://fund.eastmoney.com/manager/";
+		$url="http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson&ft=all&pn=10000&pi=1&sc=abbname&st=asc";
 		$html_data = file_get_contents($url);
 
 		// get table
 		$url_list = [];
 		//$ret = preg_match_all('/<tb([\s\S\w\W\d\D]*?)ody>/', $html_data, $match_tables);
-		$p1 = stripos($html_data, "<tbody>");
-		$p2 = stripos($html_data, "<\/tbody>");
-		$match_tables = substr($html_data, $p1, $p2-$p1);
-		$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $match_tables, $arrays);
-		$this->construct_manager_url_TT($url_list, $arrays[0]);
+		// $p1 = stripos($html_data, "<tbody>");
+		// $p2 = stripos($html_data, "<\/tbody>");
+		// $match_tables = substr($html_data, $p1, $p2-$p1);
+    // data from tiantian is changed, it returns manager list in json
+		// $ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $match_tables, $arrays);
+    $ret = preg_match_all('/{([\s\S\w\W\d\D]*?)}/', $html_data, $arrays);
+		$this->construct_manager_url_TT($url_list, $arrays[0][0]);
+
 
 		// get manager info from url and store it into table
 		$insert_count = 0;
@@ -1885,9 +1954,49 @@ class mssql
 
 	}
 
-	function construct_manager_url_TT(&$url_list, $array) {
+	function construct_manager_url_TT(&$url_list, $data) {
+		/*
+		$data = str_replace("data", "\"data\"", $data);
+		$data = str_replace("record", "\"record\"", $data);
+		$data = str_replace("pages", "\"pages\"", $data);
+		$data = str_replace("curpage", "\"curpage\"", $data);
+    $json_array = json_decode($data);
+		$array = $json_array->{"data"};
+		switch (json_last_error()) {
+        case JSON_ERROR_NONE:
+            echo ' - No errors';
+        break;
+        case JSON_ERROR_DEPTH:
+            echo ' - Maximum stack depth exceeded';
+        break;
+        case JSON_ERROR_STATE_MISMATCH:
+            echo ' - Underflow or the modes mismatch';
+        break;
+        case JSON_ERROR_CTRL_CHAR:
+            echo ' - Unexpected control character found';
+        break;
+        case JSON_ERROR_SYNTAX:
+            echo ' - Syntax error, malformed JSON';
+        break;
+        case JSON_ERROR_UTF8:
+            echo ' - Malformed UTF-8 characters, possibly incorrectly encoded';
+        break;
+        default:
+            echo ' - Unknown error';
+        break;
+    }
+		*/
+
+		$sql = "select `code`, `name` from fund_manager";
+		$array = DB::getData($sql);
 
 		foreach ($array as $item) {
+			$tmp_list = [];
+			array_push($tmp_list, "http://fund.eastmoney.com/manager/".$item["code"].".html"); // single url
+			array_push($tmp_list, $item["code"]); // manager id
+			array_push($tmp_list, $item["name"]); // manager name
+			array_push($url_list, $tmp_list);
+			/*
 			//var_dump($item);
 			$ret = preg_match_all('/href="([\s\S\w\W\d\D]*?)</', $item, $part);
 			if ($ret > 0) {
@@ -1922,6 +2031,7 @@ class mssql
 				}
 				array_push($url_list, $tmp_list);
 			}
+			*/
 		}
 	}
 
@@ -2068,19 +2178,24 @@ class mssql
 			array_push($cur_info_list, $tmp_array);
 		}
 
+		//echo "cur: ";
+		//var_dump($cur_info_list);
+
 
 		// paser 管理过的基金一览
 		$ret = preg_match_all('/管理过的基金一览([\s\S\w\W\d\D]*?)<\/table>/', $html_data, $hist_data);
 		$ret = preg_match_all('/<tbody>([\s\S\w\W\d\D]*?)<\/tbody>/', $hist_data[0][0], $hist_data);
 		$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $hist_data[0][0], $funds_list);
 		$funds_list = $funds_list[0];
+		//var_dump($hist_data);
 		$hist_info_list = [];
 		foreach ($funds_list as $fund) {
 			$ret = preg_match_all('/<td([\s\S\w\W\d\D]*?)<\/td>/', $fund, $items);
 			$items = $items[0];
-			if (count($items) < 9) {
+			if (count($items) < 8) {
 				continue;
 			}
+			//var_dump($items);
 
 			$tmp_array = [];
 
@@ -2095,18 +2210,52 @@ class mssql
 				$tmp_array["fund_code"] = "NA";
 			}
 
-			// start_date
-			$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[5], $res_string);
+			// short name
+			$ret = preg_match_all('/href=([\s\S\w\W\d\D]*?)>([\s\S\w\W\d\D]*?)</', $items[1], $res_string);
 			if ($ret > 0) {
 				$tmpS = $res_string[0][0];
 				$len = strlen($tmpS);
 				$firstP = stripos($tmpS, ">") + 1;
+				$tmp_array["short_name"] = substr($tmpS, $firstP, $len-1-$firstP);
+			} else {
+				$tmp_array["short_name"] = "NA";
+			}
+
+			// type
+			$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[3], $res_string);
+			if ($ret > 0) {
+				$tmpS = $res_string[0][0];
+				$len = strlen($tmpS);
+				$firstP = stripos($tmpS, ">") + 1;
+				$tmp_array["type"] = substr($tmpS, $firstP, $len-1-$firstP);
+			} else {
+				$tmp_array["type"] = "--";
+			}
+
+			// start_date and end_date: TT change web form
+			$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[5], $res_string);
+			if ($ret > 0) {
+				$tmpS = $res_string[1][0];
+				$parts = explode('~', $tmpS);
+				if (count($parts) < 2) {
+					$tmp_array["start_date"] = "--";
+					$tmp_array["end_date"] = "--";
+				} else {
+					$tmp_array["start_date"] = trim($parts[0]);
+					$tmp_array["end_date"] = trim($parts[1]);
+				}
+				/*
+				$len = strlen($tmpS);
+				$firstP = stripos($tmpS, ">") + 1;
 				$tmp_array["start_date"] = substr($tmpS, $firstP, $len-1-$firstP);
+				*/
 			} else {
 				$tmp_array["start_date"] = "--";
+				$tmp_array["end_date"] = "--";
 			}
 
 			// end_date
+			/*
 			$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[6], $res_string);
 			if ($ret > 0) {
 				$tmpS = $res_string[0][0];
@@ -2116,9 +2265,10 @@ class mssql
 			} else {
 				$tmp_array["end_date"] = "--";
 			}
+			*/
 
 			// pay_back
-			$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[8], $res_string);
+			$ret = preg_match_all('/>([\s\S\w\W\d\D]*?)</', $items[7], $res_string);
 			if ($ret > 0) {
 				$tmpS = $res_string[0][0];
 				$len = strlen($tmpS);
@@ -2127,8 +2277,14 @@ class mssql
 			} else {
 				$tmp_array["pay_back"] = "--";
 			}
+			$tmp_array["avatar"] = $avatar;
+			$tmp_array["rank"] = "--";
+			$tmp_array["benchmark"] = "--";
 			array_push($hist_info_list, $tmp_array);
 		}
+
+		//echo "hist: ";
+		//var_dump($hist_info_list);
 
 		$cur_id_list = [];
 		// compare
@@ -2136,6 +2292,7 @@ class mssql
 		$hist_size = count($hist_info_list);
 		//var_dump($cur_info_list);
 		//var_dump($hist_info_list);
+		/*
 		for ($cur_pos=0; $cur_pos < $cur_size; $cur_pos ++) {
 			//var_dump($cur_info_list[$cur_pos]);
 			$cur_id = $cur_info_list[$cur_pos]["fund_code"];
@@ -2169,6 +2326,44 @@ class mssql
 
 			array_push($info_list, $cur_info_list[$cur_pos]);
 			array_push($cur_id_list, $cur_id);
+
+		}
+		*/
+		for ($hist_pos=0; $hist_pos < $hist_size; $hist_pos ++) {
+			//var_dump($hist_info_list[$hist_pos]);
+			$hist_id = $hist_info_list[$hist_pos]["fund_code"];
+			//var_dump($hist_id);
+			if ($hist_id == "NA" || $hist_id == "--") {
+				continue;
+			}
+
+			for ($cur_pos=0; $cur_pos < $cur_size; $cur_pos ++) {
+				//var_dump($cur_info_list[$cur_pos]);
+				$cur_id = $cur_info_list[$cur_pos]["fund_code"];
+				//var_dump($cur_id);
+				if ($cur_id == "NA" || $cur_id == "--") {
+					continue;
+				}
+
+				if ($hist_id == $cur_id) {
+					if (in_array($hist_id, $cur_id_list)){
+						break;
+					}
+					//echo "hit\n";
+					$tmp_array = $cur_info_list[$cur_pos];
+					$tmp_array1 = $hist_info_list[$hist_pos];
+					$tmp_array1["benchmark"] = $tmp_array["benchmark"];
+					$tmp_array1["rank"] = $tmp_array["rank"];
+					$tmp_array1["avatar"] = $avatar;
+					
+					//var_dump($tmp_array);
+					$hist_info_list[$hist_pos] = $tmp_array1;
+					break;
+				}
+			}
+
+			array_push($info_list, $hist_info_list[$hist_pos]);
+			array_push($cur_id_list, $hist_id);
 
 		}
 
@@ -3840,15 +4035,15 @@ class mssql
 		$sql = "exec  [dbo].constructMysqlFundBond";
 		$ret = self::runRootSql($sql);
 		$sql = "TRUNCATE TABLE fund_bond";
-		//$ret = DB::runSql($sql);
+		$ret = DB::runSql($sql);
 
 		$mysql_tbname = "fund_bond";
-		$mysql_fields = ["fund_code", "bond_code", "bond_name", "percent", "mount", "market_value", "amortized_cost", "rank", "start_date", "end_date"];
-		$mysql_id = "fund_code";
+		$mysql_fields = ["fund_code", "bond_code", "bond_name", "percent", "mount", "market_value", "amortized_cost", "rank", "start_date", "end_date", "updateid"];
+		$mysql_id = ["fund_code"];
 
 		$mssql_tbname = "mysql_fund_bond";
-		$mssql_fields = ["fund_code", "SYMBOL", "FULLNAME", "PROPORTION", "SHARES", "MARKETVALUE", "AMORITIZEDCOST", "RANK", "STARTDATE", "ENDDATE"];
-		$mssql_id = "FUNDCODE";
+		$mssql_fields = ["fund_code", "SYMBOL", "FULLNAME", "PROPORTION", "SHARES", "MARKETVALUE", "AMORITIZEDCOST", "RANK", "STARTDATE", "ENDDATE", "UPDATEID"];
+		$mssql_id = "fund_code";
 
 		// new a table in mssql for fund_bond whith fund_code
 		$this->syn_mssql_2_mysql($mysql_tbname, $mysql_fields, $mssql_tbname, $mssql_fields, $mysql_id, $mssql_id);
@@ -4013,9 +4208,20 @@ class mssql
 	// ----------------------------------- update fund notice ----------------------------------------//
 	function syn_fund_notice() {
 		// get symbol
+		ini_set('memory_limit', '800M');
 		$sql = "select DISTINCT(code) from fund_info";
 		$symbol_list = DB::getData($sql);
 
+		/*
+		$sql = "select url from fund_notice";
+		$alread_list = DB::getData($sql);
+		$url_list = [];
+		foreach ($alread_list as $item) {
+			array_push($url_list, $item["url"]);
+		}
+		*/
+
+		var_dump($symbol_list);
 		foreach ($symbol_list as $item) {
 			$this->syn_fund_notice_per_fund($item["code"]);
 		}
@@ -4024,7 +4230,17 @@ class mssql
 
 	function syn_fund_notice_per_fund($code) {
 		$per = 100;
-		http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code=340006&page=1&per=1000&class=0&rt=0.09834829764440656
+		var_dump($code);
+
+		$sql = "select url from fund_notice where `code` = {$code}";
+    $alread_list = DB::getData($sql);
+    $url_list = [];
+    foreach ($alread_list as $item) {
+      array_push($url_list, $item["url"]);
+    }
+
+		// http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code=340006&page=1&per=1000&class=0&rt=0.09834829764440656
+		// test only update first 20
 		for ($count = 1; $count < 20; $count++) {
 			// construct url
 			$url = "http://fund.eastmoney.com/f10/F10DataApi.aspx?type=jjgg&code="
@@ -4043,7 +4259,7 @@ class mssql
 			//var_dump($item_array);
 			foreach ($item_array as $item) {
 				//var_dump($item);
-				echo "one item\n";
+				//echo "one item\n";
 				$item =iconv("GBK", "UTF-8", $item);
 				$ret = preg_match_all('/<td([\s\S]*?)<\/td>/',$item, $match_data);
 				if ($ret == 0) {
@@ -4053,6 +4269,9 @@ class mssql
 				$tmp_array = [];
 				if ( preg_match_all('/a href=\'([\s\S]*?)\'>/', $match_data[1][0], $tmp_match_data) != 0) {
 					$tmp_array["url"] = trim($tmp_match_data[1][0]);
+					if (in_array($tmp_array["url"], $url_list)) {
+						continue;
+					}
 					// get content
 					$content_data = file_get_contents($tmp_array["url"]);
 					$pos = strpos($content_data, "<div id=\"jjggzwcontent\">");
@@ -4094,11 +4313,12 @@ class mssql
 					$tmp_array["create_date"] = trim($match_data[1][2], ">");
 				}
 				array_push($res_array, $tmp_array);
+				var_dump($code);
 			}
 			//var_dump($res_array);
 
 			// insert
-			$sql = "INSERT INTO test_fund_notice (`code`, `notice_type`, `title`, `create_date`, `content`, `url`) VALUES ";
+			$sql = "INSERT IGNORE INTO fund_notice (`code`, `notice_type`, `title`, `create_date`, `content`, `url`) VALUES ";
 			$flag = false;
 			foreach ($res_array as $item) {
 				if ($flag) {
@@ -4110,7 +4330,7 @@ class mssql
 			}
 
 			if ($flag) {
-				$sql = $sql." ON DUPLICATE KEY UPDATE notice_type=VALUES(notice_type), title=VALUES(title), content=VALUES(content), url=VALUES(url)";
+				// $sql = $sql." ON DUPLICATE KEY UPDATE notice_type=VALUES(notice_type), title=VALUES(title), content=VALUES(content), url=VALUES(url)";
 				//var_dump($sql);
 				$ret = DB::runSql($sql);
 			}
@@ -4120,6 +4340,27 @@ class mssql
 	}
 
 	// ----------------------------------- update fund notice end ------------------------------------//
+	
+
+	// ----------------------------------- update fund value from net start --------------------------//
+	public function syn_fund_value_from_net($goto=0)
+	{
+		$codes=DB::getData("SELECT DISTINCT code FROM `fund_info` WHERE fund_type!='理财型' and fund_type!='货币型' ORDER BY `code` ");
+		$total=count($codes);
+		self::log("Total Task {$total}");
+		foreach ($codes as $index=>$item)
+		{
+			if($index<$goto)continue;
+			$code=trim($item['code']);
+			$this->newvalue($code,$codes, false);
+			$remain=$total-$index;
+			self::log("current newvalue task {$index}=>{$code},remain {$remain}",true);
+		}
+		self::log("All FINISHED");
+
+	}
+
+	// ----------------------------------- update fund value from net end ----------------------------//
 
 	// ----------------------------------- update fund distribution type end -------------------------//
 	function syn_fund_distribution() {
@@ -4147,8 +4388,8 @@ class mssql
 	 */
 	function update_fund_manager() {
 		$this->update_fund_manager_funds();
-		$this->construct_manager_id_map();
-		$this->syn_fund_manager();
+		// $this->construct_manager_id_map();
+		// $this->syn_fund_manager();
 	}
 
 	// ------------------------------------ not used -----------------------------------//
@@ -4469,8 +4710,27 @@ class mssql
 	}
 
 	public function syn_sing_fund_wangyu() {
-		$symbol = '486002';
-		//$this->syncSingle($symbol, false);
+		$url="http://fund.eastmoney.com/manager/";
+		$html_data = file_get_contents($url);
+		// get table
+		$url_list = [];
+		//$ret = preg_match_all('/<tb([\s\S\w\W\d\D]*?)ody>/', $html_data, $match_tables);
+		$p1 = stripos($html_data, "<tbody>");
+		$p2 = stripos($html_data, "<\/tbody>");
+		$match_tables = substr($html_data, $p1, $p2-$p1);
+		$ret = preg_match_all('/<tr([\s\S\w\W\d\D]*?)<\/tr>/', $match_tables, $arrays);
+		$this->construct_manager_url_TT($url_list, $arrays[0]);
+		var_dump($html_data);
+		var_dump($url_list);
+
+
+		/*
+		$symbol = '050001';
+		$this->syncSingle($symbol, false);
+		*/
+		$url="http://fund.eastmoney.com/manager/";
+		$html_data = file_get_contents($url);
+    /*
 		$sql = "select distinct(code) from test_fund_manager_bonus_split where split_percent is NULL or per is NULL;";
 		$data = DB::getData($sql);
 		var_dump($data);
@@ -4478,7 +4738,7 @@ class mssql
 			$symbol = $item["code"];
 			$this->construct_relative_bonus_split_per_fund($symbol);
 		}
-
+		*/
 	}
 
 
